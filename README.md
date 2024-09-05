@@ -1,4 +1,7 @@
-**FS-DETR**: Few-shot DETR
+**FS-DE⫶TR**: Few-Shot DEtection TRansformer with prompting and without re-training
+
+
+![스크린샷 2024-09-05 오후 1 46 50](https://github.com/user-attachments/assets/de449f9b-537a-435c-a7c4-450ef9755f8e)
 
 
 
