@@ -2,10 +2,6 @@
 
 
 ![스크린샷 2024-09-05 오후 1 46 50](https://github.com/user-attachments/assets/de449f9b-537a-435c-a7c4-450ef9755f8e)
-
-
-
-**DE⫶TR**: End-to-End Object Detection with Transformers
 ========
 
 [![Support Ukraine](https://img.shields.io/badge/Support-Ukraine-FFD500?style=flat&labelColor=005BBB)](https://opensource.fb.com/support-ukraine)
