@@ -1,7 +1,5 @@
 #!/bin/bash
-
 version="0.1"
-
 # This is an optional arguments-only example of Argbash potential
 #
 # ARG_OPTIONAL_SINGLE([path],[p],[path onto which files are to be downloaded],[data])
@@ -13,7 +11,6 @@ version="0.1"
 # Argbash is a bash code generator used to get arguments parsing right.
 # Argbash is FREE SOFTWARE, see https://argbash.io for more info
 # Generated online by https://argbash.io/generate
-
 die()
 {
     local _ret=$2
