@@ -16,6 +16,29 @@ import utils.loss_utils as loss_utils
 import utils.eval_utils as eval_utils
 from models.clip import clip
 
+from models import DynamicFSMDETR_FS_ResNet
+
+def fs_train_one_epoch(args, 
+                       model: DynamicFSMDETR_FS_ResNet, 
+                       data_loader_template: Iterable,
+                       data_loader_train: Iterable,
+                       optimizer: torch.optim.Optimizer,
+                       device: torch.device,
+                       epoch: int,
+                       max_norm: float = 0):
+    model.train()
+    # suppose data_loader_template is in the shape of (num_templates, 3, H, W), (num_templates,)
+    template_data, template_labels = next(iter(data_loader_template))
+    template_data = template_data.to(device)
+    template_labels = template_labels.to(device)
+    template_labels = template_labels.unsqueeze(1)
+    
+    model._get_visual_prompts(template_data, template_labels, args.hidden_dim)
+    
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    # TODO : Train Logic
+    
+
 def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable, 
                     optimizer: torch.optim.Optimizer, device: torch.device, 
                     epoch: int, max_norm: float = 0):
