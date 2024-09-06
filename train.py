@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 import datasets
 import utils.misc as utils
-from models import build_model
+from models import build_model, build_my_model
 from datasets import build_dataset
 from engine import train_one_epoch, validate
 
@@ -106,6 +106,11 @@ def get_args_parser():
     parser.add_argument('--in_points', default=32, type=int)
     parser.add_argument('--stages', default=6, type=int)
 
+    # FS-MDETR parameters
+    parser.add_argument('--pseudo_embedding', action='store_true',
+                        help="If true, use pseudo-class embeddings")
+    parser.add_argument('--pseudo_num_classes', default=100, type=int,
+                        help="Number of pseudo-classes")
 
     # Dataset parameters
     parser.add_argument('--data_root', type=str, default='/data1/shifengyuan/visual_grounding',
@@ -154,7 +159,7 @@ def main(args):
     random.seed(seed)
     
     # build model
-    model = build_model(args)
+    model = build_my_model(args)
     model.to(device)
 
     model_without_ddp = model
@@ -217,6 +222,11 @@ def main(args):
     ## 'unc': {'train', 'val', 'trainval', 'testA', 'testB'}
     # dataset_test  = build_dataset('test', args)
     
+    # TODO : build template dataset
+    # dataset_templates = build_fs_dataset('templates', args)
+    # dataset_templates_val = build_fs_dataset('templates_val', args)
+
+    
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train, shuffle=True)
         sampler_val   = DistributedSampler(dataset_val, shuffle=False)
@@ -239,7 +249,13 @@ def main(args):
 
         data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
                                      drop_last=False, collate_fn=utils.collate_fn_clip, num_workers=args.num_workers)
-
+    
+    # TODO : template dataloader
+    # data_loader_templates = DataLoader(dataset_templates, args.batch_size, shuffle=True,
+    #                                   drop_last=True, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+    
+    # data_loader_templates_val = DataLoader(dataset_templates_val, args.batch_size, shuffle=False,
+    #                                       drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu')
@@ -266,7 +282,12 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)
-
+        
+        # TODO : train one epoch with template dataloader
+        # train_fs_stats = fs_train_one_epoch(
+        #     args, model, data_loader_templates, data_loader_train, optimizer, device, epoch, args.clip_max_norm
+        # )
+        
         train_stats = train_one_epoch(
             args, model, data_loader_train, optimizer, device, epoch, args.clip_max_norm
         )
