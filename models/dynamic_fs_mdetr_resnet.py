@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 
-from dynamic_mdetr_resnet import DynamicMDETR
+from .dynamic_mdetr_resnet import DynamicMDETR
 
 class DynamicFSMDETR(DynamicMDETR):
     def __init__(self, args):
