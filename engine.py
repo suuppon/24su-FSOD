@@ -40,37 +40,35 @@ def train_one_epoch(args,
     dataset = build_my_dataset(split='train', args=args)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, num_workers=args.num_workers)
 
-    for samples, targets, support_images, support_class_ids, support_targets in metric_logger.log_every(dataloader, print_freq, header):
+    for batch_idx, batch in enumerate(dataloader):
         # 쿼리 및 지원 데이터를 디바이스로 이동
-        samples = samples.to(device)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-        support_images = [s.to(device) for s in support_images]
-        support_targets = [[{k: v.to(device) for k, v in t.items()} for t in support] for support in support_targets]
+        query_images = batch['query_images'].to(device)
+        query_boxes = batch['query_boxes'].to(device)
+        query_texts = batch['query_texts']
+        support_images = batch['support_images'].to(device)
+        support_texts = batch['support_texts']
 
-        # Forward pass
-        outputs = model(samples, support_images, support_class_ids)
-        loss_dict = criterion(outputs, targets, support_targets)
-        weight_dict = criterion.weight_dict
+        # support images와 support text 각각 Encoding
+        support_images = model.set_support_dataset(support_images, support_texts)
+        # # 가중치가 적용된 손실 계산
+        # losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
-        # 가중치가 적용된 손실 계산
-        losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+        # # 손실 역전파
+        # optimizer.zero_grad()
+        # losses.backward()
 
-        # 손실 역전파
-        optimizer.zero_grad()
-        losses.backward()
-
-        # 그라디언트 클리핑 (max_norm이 0보다 큰 경우)
-        if max_norm > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        # # 그라디언트 클리핑 (max_norm이 0보다 큰 경우)
+        # if max_norm > 0:
+        #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         
         optimizer.step()
 
         # 로그 기록
-        metric_logger.update(loss=losses.item(), **loss_dict)
-        metric_logger.update(lr=optimizer.param_groups[0]["lr"])
-        if max_norm > 0:
-            grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-            metric_logger.update(grad_norm=grad_total_norm)
+        # metric_logger.update(loss=losses.item(), **loss_dict)
+        # metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        # if max_norm > 0:
+        #     grad_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        #     metric_logger.update(grad_norm=grad_total_norm)
 
     # 에포크가 끝날 때 메트릭 출력
     metric_logger.synchronize_between_processes()
