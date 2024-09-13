@@ -29,17 +29,21 @@ class YoloFewShotDataset(torch.utils.data.Dataset):
         self.img_dir = os.path.join(train_dir, 'images')
         self.label_dir = os.path.join(train_dir, 'labels')
 
-        # 각 클래스에 대한 이미지 파일 경로를 저장할 딕셔너리 초기화
-        self.class_samples = {i: [] for i in range(self.num_classes)}
+        # 모든 객체 정보를 저장할 리스트 초기화
+        self.all_objects = []  # 전체 객체 리스트
+        self.class_objects = {i: [] for i in range(self.num_classes)}  # 클래스별 객체 리스트
 
-        # 이미지와 라벨을 읽어 클래스별로 정리
+        # 이미지와 라벨을 읽어 모든 객체를 수집
         self._load_data()
+        
+        # 각각의 객체 개수 > num_support_per_class 함
+        assert all(len(objs) >= num_support_per_class for objs in self.class_objects.values())
 
     def _load_data(self):
         """
-        이미지와 라벨 파일을 읽어와 각 클래스별로 정리하는 함수.
+        이미지와 라벨 파일을 읽어와 모든 객체를 수집하는 함수.
         """
-        for img_file in os.listdir(self.img_dir):
+        for img_file in sorted(os.listdir(self.img_dir)):
             if img_file.endswith('.jpg') or img_file.endswith('.png'):
                 label_file = os.path.splitext(img_file)[0] + '.txt'
                 label_path = os.path.join(self.label_dir, label_file)
@@ -48,65 +52,110 @@ class YoloFewShotDataset(torch.utils.data.Dataset):
                 if os.path.exists(label_path):
                     with open(label_path, 'r') as f:
                         lines = f.readlines()
-                        for line in lines:
+                        for idx, line in enumerate(lines):
                             class_id = int(line.split()[0])
                             if class_id < self.num_classes:
-                                self.class_samples[class_id].append(img_file)
+                                obj = {
+                                    'img_file': img_file,
+                                    'class_id': class_id,
+                                    'bbox_line': line.strip(),  # 라벨 파일의 해당 라인
+                                    'object_idx': idx  # 객체 인덱스 (이미지 내에서)
+                                }
+                                self.all_objects.append(obj)
+                                self.class_objects[class_id].append(obj)
 
     def __len__(self):
-        # 전체 샘플 수는 쿼리 이미지 수와 동일합니다.
-        return sum(len(samples) for samples in self.class_samples.values())
+        # 전체 객체 수를 반환
+        return len(self.all_objects)
 
-    def _get_support_images(self, class_id):
+    def _create_support_dict(self, obj):
         """
-        특정 클래스에 대한 지원 이미지를 불러오는 함수.
+        객체 정보를 받아 지원 이미지 딕셔너리를 생성하는 함수.
         """
-        support_files = random.sample(self.class_samples[class_id], self.num_support_per_class)
-        support_images = []
-        support_labels = []
+        img_file = obj['img_file']
+        bbox_line = obj['bbox_line']
+        class_id = obj['class_id']
 
-        for img_file in support_files:
-            img_path = os.path.join(self.img_dir, img_file)
-            label_file = os.path.splitext(img_file)[0] + '.txt'
-            label_path = os.path.join(self.label_dir, label_file)
+        img_path = os.path.join(self.img_dir, img_file)
+        image = Image.open(img_path).convert('RGB')
 
-            # 이미지 로드
-            image = Image.open(img_path).convert('RGB')
-            if self.transforms:
-                image = self.transforms(image)
-            support_images.append(image)
+        # 바운딩 박스 좌표 추출
+        parts = bbox_line.split()
+        bbox = list(map(float, parts[1:]))  # [x_center, y_center, width, height]
 
-            # 라벨 로드
-            boxes = []
-            if os.path.exists(label_path):
-                with open(label_path, 'r') as f:
-                    lines = f.readlines()
-                    for line in lines:
-                        parts = line.split()
-                        class_id = int(parts[0])
-                        bbox = list(map(float, parts[1:]))
-                        boxes.append([class_id] + bbox)
-            boxes = torch.tensor(boxes, dtype=torch.float32) if boxes else torch.empty((0, 5), dtype=torch.float32)
-            support_labels.append(boxes)
+        # YOLO 형식의 바운딩 박스를 이미지 좌표로 변환
+        img_w, img_h = image.size
+        x_center, y_center, width, height = bbox
+        left = (x_center - width / 2) * img_w
+        top = (y_center - height / 2) * img_h
+        right = (x_center + width / 2) * img_w
+        bottom = (y_center + height / 2) * img_h
 
-        return support_images, support_labels
+        # 바운딩 박스 영역만 잘라냄
+        cropped_image = image.crop((left, top, right, bottom))
+
+        support_dict = {
+            'text': self.class_names[class_id],  # 클래스 이름
+            'img': cropped_image  # 잘라낸 객체 이미지 (PIL 객체)
+        }
+
+        return support_dict
+
+    def _get_support_images(self, class_id, query_obj):
+        """
+        모든 클래스에 대한 지원 이미지를 불러오는 함수.
+        """
+        support_dicts = []
+
+        # 동일한 클래스에서 num_support_per_class개의 지원 이미지 선택
+        same_class_objects = [obj for obj in self.class_objects[class_id] if obj != query_obj]
+        num_same_class = self.num_support_per_class
+        sampled_same_class = random.sample(same_class_objects, num_same_class)
+
+        for obj in sampled_same_class:
+            support_dicts.append(self._create_support_dict(obj))
+
+        # 다른 클래스에서 num_support_per_class개의 지원 이미지 선택
+        for other_class_id in range(self.num_classes):
+            if other_class_id == class_id:
+                continue
+            other_class_objects = self.class_objects[other_class_id]
+            num_other_class = self.num_support_per_class
+            if num_other_class > 0:
+                sampled_other_class = random.sample(other_class_objects, num_other_class)
+                for obj in sampled_other_class:
+                    support_dicts.append(self._create_support_dict(obj))
+
+        return support_dicts
 
     def __getitem__(self, idx):
         """
         인덱스에 따라 쿼리 이미지와 지원 세트를 반환하는 메서드.
         """
-        # 임의의 쿼리 이미지를 선택
-        class_id = idx % self.num_classes
-        img_index = idx // self.num_classes
-        img_file = self.class_samples[class_id][img_index]
+        query_obj = self.all_objects[idx]
+        img_file = query_obj['img_file']
+        class_id = query_obj['class_id']
+        bbox_line = query_obj['bbox_line']
 
         # 쿼리 이미지 로드
         img_path = os.path.join(self.img_dir, img_file)
         image = Image.open(img_path).convert('RGB')
-        if self.transforms:
-            image = self.transforms(image)
 
-        # 쿼리 이미지의 라벨 로드
+        # 쿼리 객체의 바운딩 박스 추출
+        parts = bbox_line.split()
+        bbox = list(map(float, parts[1:]))
+
+        # 바운딩 박스 좌표 변환 (YOLO 형식 -> 이미지 좌표)
+        img_w, img_h = image.size
+        x_center, y_center, width, height = bbox
+        left = (x_center - width / 2) * img_w
+        top = (y_center - height / 2) * img_h
+        right = (x_center + width / 2) * img_w
+        bottom = (y_center + height / 2) * img_h
+
+        # 쿼리 객체의 바운딩 박스 영역을 이미지에 표시하거나 사용할 수 있음
+
+        # 쿼리 이미지의 전체 라벨 로드
         label_file = os.path.splitext(img_file)[0] + '.txt'
         label_path = os.path.join(self.label_dir, label_file)
         boxes = []
@@ -115,12 +164,24 @@ class YoloFewShotDataset(torch.utils.data.Dataset):
                 lines = f.readlines()
                 for line in lines:
                     parts = line.split()
-                    class_id = int(parts[0])
-                    bbox = list(map(float, parts[1:]))
-                    boxes.append([class_id] + bbox)
+                    class_id_label = int(parts[0])
+                    bbox_label = list(map(float, parts[1:]))
+                    boxes.append([class_id_label] + bbox_label)
         boxes = torch.tensor(boxes, dtype=torch.float32) if boxes else torch.empty((0, 5), dtype=torch.float32)
 
-        # 해당 클래스의 지원 이미지와 레이블 가져오기
-        support_images, support_labels = self._get_support_images(class_id)
+        # 쿼리 이미지 정보 생성
+        query_dict = {
+            'text': self.class_names[class_id],  # 클래스 이름
+            'img': image,  # 이미지 (PIL 객체)
+            'box': boxes   # 바운딩 박스 (좌표)
+        }
 
-        return image, boxes, support_images, support_labels
+        # transforms가 정의되어 있으면 쿼리 이미지에도 적용
+        if self.transforms:
+            query_dict = self.transforms(query_dict)
+
+        # 해당 객체에 대한 지원 이미지와 레이블 가져오기
+        support_dicts = self._get_support_images(class_id, query_obj)
+
+        # 쿼리 이미지와 지원 이미지를 반환
+        return query_dict, support_dicts
