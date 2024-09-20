@@ -122,6 +122,31 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
                 input_type_ids=input_type_ids))
     return features
 
+# 이미지 내 다른 문장을 템플릿으로 사용
+def create_templates_based_on_same_image(images):
+    new_images = []
+    image_groups = {}
+    
+    # 같은 이미지 파일을 그룹화
+    for img in images:
+        img_file = img[0]
+        if img_file not in image_groups:
+            image_groups[img_file] = []
+        image_groups[img_file].append(img)
+    
+    # 각 그룹 내에서 템플릿을 생성
+    for img_file, group in image_groups.items():
+        for i, img in enumerate(group):
+            # 동일한 이미지 그룹 내에서 다른 문장들을 템플릿으로 설정
+            templates = [group[idx] for idx in range(len(group)) if idx != i]
+            
+            # 원래 데이터에 템플릿 추가
+            new_img = list(img)
+            new_img.append(templates[0:3])
+            new_images.append(tuple(new_img))
+    
+    return new_images
+
 class DatasetNotFoundError(Exception):
     pass
 
@@ -207,37 +232,78 @@ class GroundingDataset(data.Dataset):
         if self.dataset != 'referit':
             splits = ['train', 'val'] if split == 'trainval' else [split]
         for split in splits:
-            imgset_file = '{0}_{1}.pth'.format(self.dataset, split)
+            imgset_file = '{0}_{1}.pth'.format('refcocogs', split)
             imgset_path = osp.join(dataset_path, imgset_file)
             self.images += torch.load(imgset_path)
+        # 템플릿 구성
+        # self.images = create_templates_based_on_same_image(self.images)
 
     def exists_dataset(self):
         return osp.exists(osp.join(self.split_root, self.dataset))
 
     def pull_item(self, idx):
-        if self.dataset == 'flickr':
-            img_file, bbox, phrase = self.images[idx]
-        else:
-            img_file, _, bbox, phrase, attri = self.images[idx]
-        ## box format: to x1y1x2y2
-        if not (self.dataset == 'referit' or self.dataset == 'flickr'):
-            bbox = np.array(bbox, dtype=int)
-            bbox[2], bbox[3] = bbox[0]+bbox[2], bbox[1]+bbox[3]
-        else:
-            bbox = np.array(bbox, dtype=int)
+      if self.dataset == 'flickr':
+          img_file, bbox, phrase = self.images[idx]
+      else:
+          img_file, _, bbox, phrase, attri, cat, templates = self.images[idx]
 
-        img_path = osp.join(self.im_dir, img_file)
-        img = Image.open(img_path).convert("RGB")
-        # img = cv2.imread(img_path)
-        # ## duplicate channel if gray image
-        # if img.shape[-1] > 1:
-        #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # else:
-        #     img = np.stack([img] * 3)
+      ## 타겟 이미지의 bbox 처리 (target과 동일한 처리)
+      if not (self.dataset == 'referit' or self.dataset == 'flickr'):
+          bbox = np.array(bbox, dtype=int)
+          bbox[2], bbox[3] = bbox[0] + bbox[2], bbox[1] + bbox[3]
+      else:
+          bbox = np.array(bbox, dtype=int)
 
-        bbox = torch.tensor(bbox)
-        bbox = bbox.float()
-        return img, phrase, bbox 
+      # 타겟 이미지 처리
+      img_path = osp.join(self.im_dir, img_file)
+      img = Image.open(img_path).convert("RGB")
+      
+      # bbox를 텐서로 변환
+      bbox = torch.tensor(bbox)
+      bbox = bbox.float()
+
+      # 템플릿 처리
+      processed_templates = []
+      for template in templates:
+          temp_img_file, _, temp_bbox, temp_phrase, _ ,temp_cat = template
+          
+          # 템플릿 bbox 처리 (target과 동일한 방식)
+          if not (self.dataset == 'referit' or self.dataset == 'flickr'):
+              temp_bbox = np.array(temp_bbox, dtype=int)
+              temp_bbox[2], temp_bbox[3] = temp_bbox[0] + temp_bbox[2], temp_bbox[1] + temp_bbox[3]
+          else:
+              temp_bbox = np.array(temp_bbox, dtype=int)
+
+          # 템플릿 데이터 저장 (bbox 포함)
+          processed_templates.append((temp_img_file, torch.tensor(temp_bbox).float(), temp_phrase, temp_cat))
+
+      return img, phrase, bbox, processed_templates ,cat
+
+
+    # def pull_item(self, idx):
+    #     if self.dataset == 'flickr':
+    #         img_file, bbox, phrase = self.images[idx]
+    #     else:
+    #         img_file, _, bbox, phrase, attri, templates = self.images[idx]
+    #     ## box format: to x1y1x2y2
+    #     if not (self.dataset == 'referit' or self.dataset == 'flickr'):
+    #         bbox = np.array(bbox, dtype=int)
+    #         bbox[2], bbox[3] = bbox[0]+bbox[2], bbox[1]+bbox[3]
+    #     else:
+    #         bbox = np.array(bbox, dtype=int)
+
+    #     img_path = osp.join(self.im_dir, img_file)
+    #     img = Image.open(img_path).convert("RGB")
+    #     # img = cv2.imread(img_path)
+    #     # ## duplicate channel if gray image
+    #     # if img.shape[-1] > 1:
+    #     #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    #     # else:
+    #     #     img = np.stack([img] * 3)
+
+    #     bbox = torch.tensor(bbox)
+    #     bbox = bbox.float() 
+    #     return img, phrase, bbox,templates
 
     def tokenize_phrase(self, phrase):
         return self.corpus.tokenize(phrase, self.query_len)
@@ -248,37 +314,110 @@ class GroundingDataset(data.Dataset):
     def __len__(self):
         # return int(len(self.images) / 10)
         return len(self.images)
-
     def __getitem__(self, idx):
-        img, phrase, bbox = self.pull_item(idx)
-        # phrase = phrase.decode("utf-8").encode().lower()
-        phrase = phrase.lower()
-        input_dict = {'img': img, 'box': bbox, 'text': phrase}
-        input_dict = self.transform(input_dict)
-        img = input_dict['img']
-        bbox = input_dict['box']
-        phrase = input_dict['text']
-        img_mask = input_dict['mask']
+      # Target 데이터 가져오기
+      img, phrase, bbox, templates , category= self.pull_item(idx)
+      phrase = phrase.lower()
+
+      # Target 데이터 전처리
+      input_dict = {'img': img, 'box': bbox, 'text': phrase}
+      input_dict = self.transform(input_dict)
+      img = input_dict['img']
+      bbox = input_dict['box']
+      phrase = input_dict['text']
+      img_mask = input_dict['mask']  # 타겟 이미지 마스크
+      category = category
+
+      # BERT 텍스트 인코딩 (Target)
+      if self.lstm:
+          phrase = self.tokenize_phrase(phrase)
+          word_id = phrase
+          word_mask = np.array(word_id > 0, dtype=int)
+      else:
+          examples = read_examples(phrase, idx)
+          features = convert_examples_to_features(examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
+          word_id = features[0].input_ids
+          word_mask = features[0].input_mask
+
+      # 템플릿 처리
+      template_imgs = []
+      template_img_masks = []  # 템플릿 이미지 마스크 추가
+      template_word_ids = []
+      template_word_masks = []
+      template_bboxes = []
+      template_cats = []
+
+      for template in templates:
+          temp_img_file, temp_bbox, temp_phrase, temp_cat = template[0], template[1], template[2],  template[3]
+          temp_phrase = temp_phrase.lower()
+
+          # 템플릿 이미지 변환
+          temp_img_path = osp.join(self.im_dir, temp_img_file)
+          temp_img = Image.open(temp_img_path).convert("RGB")
+          temp_input_dict = self.transform({'img': temp_img, 'box': torch.tensor(temp_bbox).float(), 'text': temp_phrase})
+
+          # 템플릿 이미지와 마스크 처리
+          temp_img = temp_input_dict['img']
+          temp_img_mask = temp_input_dict['mask']  # 템플릿 이미지 마스크 처리
+
+          # 템플릿 텍스트 BERT 인코딩
+          if self.lstm:
+              temp_phrase = self.tokenize_phrase(temp_phrase)
+              temp_word_id = temp_phrase
+              temp_word_mask = np.array(temp_word_id > 0, dtype=int)
+          else:
+              examples = read_examples(temp_phrase, idx)
+              features = convert_examples_to_features(examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
+              temp_word_id = features[0].input_ids
+              temp_word_mask = features[0].input_mask
+
+          # 템플릿 이미지 및 텍스트 임베딩 저장
+          template_imgs.append(temp_img)
+          template_img_masks.append(temp_img_mask)  # 템플릿 마스크 추가
+          template_word_ids.append(np.array(temp_word_id, dtype=int))
+          template_word_masks.append(np.array(temp_word_mask, dtype=int))
+          template_bboxes.append(np.array(temp_bbox, dtype=np.float32))
+          template_cats.append(temp_cat)
+
+      if self.testmode:
+          return (img, np.array(word_id, dtype=int), np.array(word_mask, dtype=int), np.array(bbox, dtype=np.float32), 
+                  template_imgs, template_img_masks, template_word_ids, template_word_masks, template_bboxes, self.images[idx][0], category,template_cats)
+      else:
+          return (img, np.array(img_mask), np.array(word_id, dtype=int), np.array(word_mask, dtype=int), np.array(bbox, dtype=np.float32), 
+                  template_imgs, template_img_masks, template_word_ids, template_word_masks, template_bboxes, category,template_cats)
+
+
+
+    # def __getitem__(self, idx):
+    #     img, phrase, bbox, templates = self.pull_item(idx)
+    #     # phrase = phrase.decode("utf-8").encode().lower()
+    #     phrase = phrase.lower()
+    #     input_dict = {'img': img, 'box': bbox, 'text': phrase}
+    #     input_dict = self.transform(input_dict)
+    #     img = input_dict['img']
+    #     bbox = input_dict['box']
+    #     phrase = input_dict['text']
+    #     img_mask = input_dict['mask']
         
-        if self.lstm:
-            phrase = self.tokenize_phrase(phrase)
-            word_id = phrase
-            word_mask = np.array(word_id>0, dtype=int)
-        else:
-            ## encode phrase to bert input
-            examples = read_examples(phrase, idx)
-            features = convert_examples_to_features(
-                examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
-            word_id = features[0].input_ids
-            word_mask = features[0].input_mask
+    #     if self.lstm:
+    #         phrase = self.tokenize_phrase(phrase)
+    #         word_id = phrase
+    #         word_mask = np.array(word_id>0, dtype=int)
+    #     else:
+    #         ## encode phrase to bert input
+    #         examples = read_examples(phrase, idx)
+    #         features = convert_examples_to_features(
+    #             examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
+    #         word_id = features[0].input_ids
+    #         word_mask = features[0].input_mask
         
-        if self.testmode:
-            return img, np.array(word_id, dtype=int), np.array(word_mask, dtype=int), \
-                np.array(bbox, dtype=np.float32), np.array(ratio, dtype=np.float32), \
-                np.array(dw, dtype=np.float32), np.array(dh, dtype=np.float32), self.images[idx][0]
-        else:
-            # print(img.shape)
-            return img, np.array(img_mask), np.array(word_id, dtype=int), np.array(word_mask, dtype=int), np.array(bbox, dtype=np.float32)
+    #     if self.testmode:
+    #         return img, np.array(word_id, dtype=int), np.array(word_mask, dtype=int), \
+    #             np.array(bbox, dtype=np.float32), np.array(ratio, dtype=np.float32), \
+    #             np.array(dw, dtype=np.float32), np.array(dh, dtype=np.float32), self.images[idx][0]
+    #     else:
+    #         # print(img.shape)
+    #         return img, np.array(img_mask), np.array(word_id, dtype=int), np.array(word_mask, dtype=int), np.array(bbox, dtype=np.float32)
 
 
 class GroundingDatasetCLIP(data.Dataset):
