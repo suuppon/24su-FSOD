@@ -209,14 +209,14 @@ class DynamicMDETR(nn.Module):
                   batch_template_combined_masks.append(combined_template_mask)
 
               # 각 배치별 템플릿 피처를 병합
-              batch_template_combined_feats = torch.cat(batch_template_combined_feats, dim=1)  # [441, 5, 256]
-              batch_template_pos_feats = torch.cat(batch_template_pos_feats, dim=1)  # [441, 5, 256]
+              batch_template_combined_feats = torch.cat(batch_template_combined_feats, dim=1)  # [441, 5, 256] 
+              batch_template_pos_feats = torch.cat(batch_template_pos_feats, dim=1)  # [441, 5, 256] 
               batch_template_combined_masks = torch.cat(batch_template_combined_masks, dim=0)  # [5, 441]
 
               # Average pooling을 사용하여 템플릿 피처를 하나의 피처로 통합
-              batch_template_combined_feats = batch_template_combined_feats.mean(dim=1, keepdim=True)  # [441, 1, 256]
-              batch_template_pos_feats = batch_template_pos_feats.mean(dim=1, keepdim=True)  # [441, 1, 256]
-              batch_template_combined_masks = (batch_template_combined_masks == 1).any(dim=0, keepdim=True).float()  # [1, 441]
+              batch_template_combined_feats = batch_template_combined_feats.mean(dim=0, keepdim=True)  # [1, 5, 256]
+              batch_template_pos_feats = batch_template_pos_feats.mean(dim=0, keepdim=True)  # [1, 5, 256]
+              batch_template_combined_masks = (batch_template_combined_masks == 1).any(dim=1, keepdim=True).float()  # [5, 1]
 
               # 최종 피처 리스트에 추가
               template_combined_feats.append(batch_template_combined_feats)
@@ -224,14 +224,13 @@ class DynamicMDETR(nn.Module):
               template_combined_masks.append(batch_template_combined_masks)
 
           # 모든 배치에 대해 병합
-          template_combined_src = torch.cat(template_combined_feats, dim=1)  # [441, 8, 256]
-          template_combined_pos = torch.cat(template_pos_feats, dim=1)  # [441, 8, 256]
-          template_combined_mask = torch.cat(template_combined_masks, dim=0)  # [8, 441]
+          template_combined_src = torch.cat(template_combined_feats, dim=0)  # [8, 5 , 256]
+          template_combined_pos = torch.cat(template_pos_feats, dim=0)  # [8, 5, 256]
+          template_combined_mask = torch.cat(template_combined_masks, dim=1)  # [5, 8]
 
-          # Positional embedding 결합된 템플릿 피처 출력
-          # print(template_combined_src.size())  # [441, 8, 256]
-          # print(template_combined_pos.size())  # [441, 8, 256]
-          # print(template_combined_mask.size())   # [8, 441]
+          template_combined_src = template_combined_src.permute(1, 0, 2)  # [5, 8 , 256]
+          template_combined_pos =  template_combined_pos.permute(1, 0, 2)  # [5, 8, 256]
+          template_combined_mask = template_combined_mask.permute(1, 0)  # [5, 8]
 
 
           # 4. Dynamic Multimodal Transformer Decoder
