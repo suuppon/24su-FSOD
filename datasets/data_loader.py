@@ -232,7 +232,7 @@ class GroundingDataset(data.Dataset):
         if self.dataset != 'referit':
             splits = ['train', 'val'] if split == 'trainval' else [split]
         for split in splits:
-            imgset_file = '{0}_{1}.pth'.format('refcocogs', split)
+            imgset_file = '{0}_{1}.pth'.format('refcocogd', split)
             imgset_path = osp.join(dataset_path, imgset_file)
             self.images += torch.load(imgset_path)
         # 템플릿 구성
@@ -350,15 +350,20 @@ class GroundingDataset(data.Dataset):
       for template in templates:
           temp_img_file, temp_bbox, temp_phrase, temp_cat = template[0], template[1], template[2],  template[3]
           temp_phrase = temp_phrase.lower()
+          temp_phrase = f'a photo of {temp_cat}'
 
           # 템플릿 이미지 변환
           temp_img_path = osp.join(self.im_dir, temp_img_file)
           temp_img = Image.open(temp_img_path).convert("RGB")
-          temp_input_dict = self.transform({'img': temp_img, 'box': torch.tensor(temp_bbox).float(), 'text': temp_phrase})
+          # 템플릿 이미지 크롭
+          temp_img = temp_img.crop((temp_bbox.tolist()))
+          temp_input_dict = self.transform({'img': temp_img, 'box': temp_bbox, 'text': temp_phrase})
 
           # 템플릿 이미지와 마스크 처리
           temp_img = temp_input_dict['img']
           temp_img_mask = temp_input_dict['mask']  # 템플릿 이미지 마스크 처리
+          
+          temp_phrase = temp_input_dict['text']
 
           # 템플릿 텍스트 BERT 인코딩
           if self.lstm:
