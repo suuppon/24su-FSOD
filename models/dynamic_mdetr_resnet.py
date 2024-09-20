@@ -142,6 +142,10 @@ class DynamicMDETR(nn.Module):
           vl_mask = torch.cat([visu_mask, text_mask], dim=1)
           vl_pos = self.vl_pos_embed.weight.unsqueeze(1).repeat(1, bs, 1)
 
+          # print(vl_src.size()) torch.Size([440, 8, 256])
+          # print(vl_pos.size()) torch.Size([440, 8, 256])
+          # print(vl_mask.size()) torch.Size([8, 440])
+          # print(text_mask.size()) torch.Size([8, 40])
 
           # 2. Multimodal Transformer
           # 2.1 Multimodal Transformer Encoder
@@ -161,11 +165,13 @@ class DynamicMDETR(nn.Module):
           ## 템플릿 피처 결합 및 평균 풀링
           template_combined_feats = []  # 템플릿별로 결합된 피처 저장용 리스트
           template_pos_feats = []  # 템플릿별 포지셔널 임베딩 저장용 리스트
+          template_combined_masks = []  # 템플릿별 마스크 저장용 리스트
 
           for i in range(bs):
               # 개별 배치의 템플릿 피처 저장용 리스트
               batch_template_combined_feats = []
               batch_template_pos_feats = []
+              batch_template_combined_masks = []  # 마스크 저장용 리스트
 
               for j in range(tem_imgs[i].tensors.shape[0]):  # 템플릿 개수만큼 반복 (여기서는 5개)
                   # 2.1 Visual Encoder for Template
@@ -181,9 +187,13 @@ class DynamicMDETR(nn.Module):
                   # 텍스트 템플릿 데이터를 언어 모델에 입력
                   tem_text_fea = self.textmodel(NestedTensor(tem_txt_tensor, tem_txt_mask))
                   tem_text_src, tem_text_mask = tem_text_fea.decompose()  # Mask와 Text Feature 분리
+                  tem_text_mask = tem_text_mask.flatten(1)
                   tem_text_src = self.text_proj(tem_text_src).permute(1, 0, 2)  # (40, 1, 256)
                   text_pos = self.vl_pos_embed.weight[:tem_text_src.shape[0]].unsqueeze(1)  # (40, 1, 256)
 
+                  # 마스크 생성
+                  pseudo_class_mask = torch.zeros((1, 1), device=tem_visu_mask.device)  # (1, 1)
+                  
                   # 2.3 Pseudo-class embedding for Template
                   tem_category_idx = torch.tensor(self.category_to_idx[tem_cats[i][j]], device=img_data.tensors.device)
                   tem_pseudo_class_feat = self.pseudo_class_embedding(tem_category_idx).unsqueeze(0).unsqueeze(0)  # (1, 1, 256) 
@@ -192,59 +202,74 @@ class DynamicMDETR(nn.Module):
                   # 템플릿 피처 결합 (Visual Feature, Language Feature, Pseudo-class Embedding)
                   combined_template_feat = torch.cat([tem_visu_src, tem_text_src, tem_pseudo_class_feat], dim=0)  # (441, 1, 256)
                   combined_template_pos = torch.cat([visual_pos, text_pos, pseudo_class_pos], dim=0)  # (441, 1, 256)
-                  
+                  combined_template_mask = torch.cat([tem_visu_mask, tem_text_mask, pseudo_class_mask], dim=1)  # (1, 441)
+
                   batch_template_combined_feats.append(combined_template_feat)
                   batch_template_pos_feats.append(combined_template_pos)
+                  batch_template_combined_masks.append(combined_template_mask)
 
               # 각 배치별 템플릿 피처를 병합
               batch_template_combined_feats = torch.cat(batch_template_combined_feats, dim=1)  # [441, 5, 256]
               batch_template_pos_feats = torch.cat(batch_template_pos_feats, dim=1)  # [441, 5, 256]
+              batch_template_combined_masks = torch.cat(batch_template_combined_masks, dim=0)  # [5, 441]
 
               # Average pooling을 사용하여 템플릿 피처를 하나의 피처로 통합
               batch_template_combined_feats = batch_template_combined_feats.mean(dim=1, keepdim=True)  # [441, 1, 256]
               batch_template_pos_feats = batch_template_pos_feats.mean(dim=1, keepdim=True)  # [441, 1, 256]
+              batch_template_combined_masks = (batch_template_combined_masks == 1).any(dim=0, keepdim=True).float()  # [1, 441]
 
               # 최종 피처 리스트에 추가
               template_combined_feats.append(batch_template_combined_feats)
               template_pos_feats.append(batch_template_pos_feats)
+              template_combined_masks.append(batch_template_combined_masks)
 
           # 모든 배치에 대해 병합
           template_combined_src = torch.cat(template_combined_feats, dim=1)  # [441, 8, 256]
           template_combined_pos = torch.cat(template_pos_feats, dim=1)  # [441, 8, 256]
+          template_combined_mask = torch.cat(template_combined_masks, dim=0)  # [8, 441]
 
           # Positional embedding 결합된 템플릿 피처 출력
           # print(template_combined_src.size())  # [441, 8, 256]
           # print(template_combined_pos.size())  # [441, 8, 256]
-
+          # print(template_combined_mask.size())   # [8, 441]
 
 
           # 4. Dynamic Multimodal Transformer Decoder
           sampling_query = self.init_sampling_feature.weight.repeat(bs, 1)
           reference_point = self.init_reference_point.weight.repeat(bs, 1)
 
+          # language query와 multimodal prompt결합하여 새로운 query 생성 
+          new_query = torch.cat([language_feat, template_combined_src], dim=0) # torch.Size([481, 8, 256])
+
           for i in range(self.stages):
               # 2d adaptive pooling
               sampled_features, pe = self.feautures_sampling(sampling_query, reference_point, visu_feat.permute(1, 2, 0), v_pos.permute(1, 2, 0), i)
 
-              # Text guided decoding with one-layer transformer encoder-decoder
-              # language_feat와 template_combined_src를 결합하여 사용
+              ## Text guided decoding with one-layer transformer encoder-decoder
+              ## language_feat와 template_combined_src를 결합하여 사용
 
-              # print(language_feat.size()) torch.Size([40, 8, 256])
-              # print(torch.cat([language_feat, template_combined_src], dim=0).size())  torch.Size([481, 8, 256])
+              # print(language_feat.size()) # torch.Size([40, 8, 256])
+              # print(torch.cat([text_mask, template_combined_mask], dim=1).size())  # torch.Size([8, 481])
+              # print(sampled_features.size()) # torch.Size([8, 256, 36])
+              # print(pe.size()) # torch.Size([8, 256, 36])
+
+
               if self.different_transformer:
-                vg_hs = self.vl_transformer[i](sampled_features, None, torch.cat([language_feat, template_combined_src], dim=0), pe, text_mask, torch.cat([l_pos, template_combined_pos], dim=0))[0]
+                vg_hs = self.vl_transformer[i](sampled_features, None, new_query, pe, torch.cat([text_mask, template_combined_mask], dim=1), torch.cat([l_pos, template_combined_pos], dim=0))[0]
                 # forward(self, src, src_mask, target, pos_embed, tgt_mask, tgt_pos=None)
                 # self.encoder(src, src_key_padding_mask=src_mask, pos=pos_embed)
                 # self.decoder(tgt, memory,  tgt_key_padding_mask=tgt_mask, memory_key_padding_mask=src_mask,pos=pos_embed, query_pos=tgt_pos)
                 # vg_memory = self.vl_transformer[i].encoder(sampled_features, None, pe)
                 # vg_hs = self.vl_transformer[i].decoder(torch.cat([language_feat, template_combined_src], dim=0) ,vg_memory, text_mask, None, pe, l_pos)
               else:
-                vg_hs = self.vl_transformer[i](sampled_features, None, torch.cat([language_feat, template_combined_src], dim=0), pe, text_mask, torch.cat([l_pos, template_combined_pos], dim=0))[0]
+                vg_hs = self.vl_transformer[i](sampled_features, None, new_query, pe, torch.cat([text_mask, template_combined_mask], dim=1), torch.cat([l_pos, template_combined_pos], dim=0))[0]
                 # vg_memory = self.vl_transformer[i].encoder(sampled_features, None, pe)
                 # vg_hs = self.vl_transformer[i].decoder(torch.cat([language_feat, template_combined_src], dim=0) ,vg_memory, text_mask, None, pe, l_pos)
 
               language_feat = vg_hs[0]
-              text_select = (1 - text_mask * 1.0).unsqueeze(-1)
+              text_select = (1 - torch.cat([text_mask, template_combined_mask], dim=1) * 1.0).unsqueeze(-1)
+              # print(text_select.size()) torch.Size([8, 481, 1])
+              # text_select = (1 - text_mask * 1.0).unsqueeze(-1) torch.Size([8, 40, 1])
               text_select_num = text_select.sum(dim=1)
               vg_hs = (text_select * vg_hs[0].permute(1, 0, 2)).sum(dim=1) / text_select_num
 
