@@ -76,7 +76,8 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
             # Modifies `tokens_a` and `tokens_b` in place so that the total
             # length is less than the specified length.
             # Account for [CLS], [SEP], [SEP] with "- 3"
-            _truncate_seq_pair(tokens_a, tokens_b, seq_length - 3)
+            # _truncate_seq_pair(tokens_a, tokens_b, seq_length - 3)
+            raise NotImplementedError
         else:
             # Account for [CLS] and [SEP] with "- 2"
             if len(tokens_a) > seq_length - 2:
@@ -236,7 +237,7 @@ class GroundingDataset(data.Dataset):
             imgset_path = osp.join(dataset_path, imgset_file)
             self.images += torch.load(imgset_path)
         # 템플릿 구성
-        # self.images = create_templates_based_on_same_image(self.images)
+        self.images = create_templates_based_on_same_image(self.images)
 
     def exists_dataset(self):
         return osp.exists(osp.join(self.split_root, self.dataset))

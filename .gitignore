@@ -1,2 +1,5 @@
 *.idea
 .DS_Store
+data/
+referit_data/
+GroundVLP/

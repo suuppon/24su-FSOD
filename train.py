@@ -116,6 +116,8 @@ def get_args_parser():
                         help='referit/unc/unc+/gref/gref_umd')
     parser.add_argument('--max_query_len', default=20, type=int,
                         help='maximum time steps (lang length) per batch')
+    parser.add_argument('--category_file_path', default='GroundVLP/coco_80.txt', type=str,
+                        help='category file path')
     
     # dataset parameters
     parser.add_argument('--output_dir', default='./outputs',
