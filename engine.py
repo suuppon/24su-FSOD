@@ -133,7 +133,7 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
     pred_box_list = []
     gt_box_list = []
     for _, batch in enumerate(tqdm(data_loader)):
-        img_data, text_data, target = batch
+        (img_data, text_data, target ,tem_imgs, tem_txts, tem_bboxes, category,tem_cat)= batch
         batch_size = img_data.tensors.size(0)
         # copy to GPU
         img_data = img_data.to(device)
@@ -141,8 +141,11 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
             text_data = text_data.to(device)
         else:
             text_data = clip.tokenize(text_data).to(device)
+        tem_imgs = [tmpl.to(device) for tmpl in tem_imgs]
+        tem_txts = [tmpl.to(device) for tmpl in tem_txts]
+        tem_bboxes = [tmpl.to(device) for tmpl in tem_bboxes]
         target = target.to(device)
-        output = model(img_data, text_data)
+        output = model(img_data, text_data, tem_imgs, tem_txts, category,tem_cat)
 
         pred_box_list.append(output.cpu())
         gt_box_list.append(target.cpu())

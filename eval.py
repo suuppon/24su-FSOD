@@ -103,7 +103,7 @@ def get_args_parser():
     parser.add_argument('--stages', default=6, type=int)
 
     # Dataset parameters
-    parser.add_argument('--data_root', type=str, default='/data1/shifengyuan/visual_grounding',
+    parser.add_argument('--data_root', type=str, default='/content/drive/MyDrive/fsod/Dynamic-MDETR/ln_data',
                         help='path to ReferIt splits data folder')
     parser.add_argument('--split_root', type=str, default='data',
                         help='location of pre-parsed dataset info')
@@ -119,7 +119,7 @@ def get_args_parser():
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=13, type=int)
     parser.add_argument('--resume', default='', help='resume from checkpoint')
-    parser.add_argument('--detr_model', default='./saved_models/detr-r50.pth', type=str, help='detr model')
+    parser.add_argument('--detr_model', default='/content/drive/MyDrive/fsod/Dynamic-MDETR/checkpoints/detr-r50.pth', type=str, help='detr model')
     parser.add_argument('--bert_model', default='bert-base-uncased', type=str, help='bert model')
     parser.add_argument('--light', dest='light', default=False, action='store_true', help='if use smaller model')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
