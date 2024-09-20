@@ -233,7 +233,7 @@ class GroundingDataset(data.Dataset):
         if self.dataset != 'referit':
             splits = ['train', 'val'] if split == 'trainval' else [split]
         for split in splits:
-            imgset_file = '{0}_{1}.pth'.format('refcocogs', split)
+            imgset_file = '{0}_{1}.pth'.format(self.dataset, split)
             imgset_path = osp.join(dataset_path, imgset_file)
             self.images += torch.load(imgset_path)
         # 템플릿 구성

@@ -112,7 +112,7 @@ def get_args_parser():
                         help='path to ReferIt splits data folder')
     parser.add_argument('--split_root', type=str, default='data',
                         help='location of pre-parsed dataset info')
-    parser.add_argument('--dataset', default='referit', type=str,
+    parser.add_argument('--dataset', default='refcocogs', type=str,
                         help='referit/unc/unc+/gref/gref_umd')
     parser.add_argument('--max_query_len', default=20, type=int,
                         help='maximum time steps (lang length) per batch')
