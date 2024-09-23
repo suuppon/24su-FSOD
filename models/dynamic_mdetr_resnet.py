@@ -42,7 +42,7 @@ class DynamicMDETR(nn.Module):
         self.pseudo_class_embedding = nn.Embedding(80, hidden_dim)
 
         # Add context embedding layer
-        self.context_embedding = nn.Linear(hidden_dim, hidden_dim)  # For learning context from text and visual
+        # self.context_embedding = nn.Linear(hidden_dim, hidden_dim)  # For learning context from text and visual
 
         self.visumodel = build_detr(args)
         self.textmodel = build_bert(args)
@@ -50,18 +50,30 @@ class DynamicMDETR(nn.Module):
         num_total = self.num_visu_token + self.num_text_token 
         self.vl_pos_embed = nn.Embedding(num_total, hidden_dim) 
         self.vl_encoder = build_vl_encoder(args)
+       
 
         self.vl_pos_embed_template =  nn.Embedding(num_total*5, hidden_dim) 
 
         self.visu_proj = nn.Linear(self.visumodel.num_channels, hidden_dim)
         self.text_proj = nn.Linear(self.textmodel.num_channels, hidden_dim)
 
+        # vl_encoder 인코더의 모든 파라미터를 얼림.
+        for param in self.vl_encoder.parameters():
+            param.requires_grad = False
+        for param in self.visumodel.parameters():
+            param.requires_grad = False
+        for param in self.textmodel.parameters():
+            param.requires_grad = False
+        for param in self.visu_proj.parameters():
+            param.requires_grad = False
+        for param in self.text_proj.parameters():
+            param.requires_grad = False
+
         # Sampling relevant
         self.visual_feature_map_h = 20
         self.visual_feature_map_w = 20
         self.in_points = args.in_points
         self.stages = args.stages
-        self.sampleing_proj = nn.Linear(hidden_dim * 3, hidden_dim)
 
         self.offset_generators = nn.ModuleList([nn.Linear(hidden_dim, self.in_points * 2) for i in range(args.stages)])
         self.update_sampling_queries = nn.ModuleList(
