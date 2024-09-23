@@ -35,7 +35,7 @@ class DynamicMDETR(nn.Module):
         self.different_transformer = args.different_transformer
 
         # Category to index mapping from the file
-        category_file_path = '/content/drive/MyDrive/fsod/Dynamic-MDETR/datasets/coco_80.txt'
+        category_file_path = 'GroundVLP/coco_80.txt'
         self.category_to_idx, self.categories = load_category_mapping(category_file_path)
 
         # Add pseudo-class embedding (learnable token)
@@ -127,18 +127,15 @@ class DynamicMDETR(nn.Module):
         return sampled_features, pe
 
     def forward(self, img_data, text_data, tem_imgs, tem_txts, category, tem_cats):
-          bs = img_data.tensors.shape[0]
-
-          # Category를 숫자로 변환
-          category_idx = torch.tensor([self.category_to_idx[cat] for cat in category], device=img_data.tensors.device)
+          bs = img_data.shape[0]
 
           # 1. Feature Encoder - Target
 
           # 1.1 Visual Encoder
           # visual backbone
           out, visu_pos = self.visumodel(img_data)
-          visu_mask, visu_src = out # (B, H*W), (H*W, B, channel)
-          visu_src = self.visu_proj(visu_src)  # (H*W, B, channel)
+          visu_mask, visu_src = out # (B, H*W), (N_v, B, channel)
+          visu_src = self.visu_proj(visu_src)  # (N_v, B, channel)
 
           # 1.2 Language Encoder
           # language bert

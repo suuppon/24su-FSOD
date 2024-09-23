@@ -108,7 +108,7 @@ def get_args_parser():
 
 
     # Dataset parameters
-    parser.add_argument('--data_root', type=str, default='/content/drive/MyDrive/fsod/Dynamic-MDETR/ln_data',
+    parser.add_argument('--data_root', type=str, default='ln_data/referit_data',
                         help='path to ReferIt splits data folder')
     parser.add_argument('--split_root', type=str, default='data',
                         help='location of pre-parsed dataset info')
@@ -116,6 +116,8 @@ def get_args_parser():
                         help='referit/unc/unc+/gref/gref_umd')
     parser.add_argument('--max_query_len', default=20, type=int,
                         help='maximum time steps (lang length) per batch')
+    parser.add_argument('--category_file_path', type=str, default='GroundVLP/coco_80.txt',
+                        help='path to category file')
     
     # dataset parameters
     parser.add_argument('--output_dir', default='./outputs',
