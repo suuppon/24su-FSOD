@@ -27,10 +27,15 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
 
     iter = epoch * len(data_loader)
     for batch in metric_logger.log_every(data_loader, print_freq, header):
-        img_data, text_data, target = batch
+        ( img_data, text_data, target ,tem_imgs, tem_txts, tem_bboxes, category, tem_cat)= batch
 
         # copy to GPU
         img_data = img_data.to(device)
+        # tem_imgs와 tem_txts는 리스트이므로, 각 NestedTensor를 GPU로 이동시킴
+        tem_imgs = [tmpl.to(device) for tmpl in tem_imgs]
+        tem_txts = [tmpl.to(device) for tmpl in tem_txts]
+        tem_bboxes = [tmpl.to(device) for tmpl in tem_bboxes]
+
         if args.model_type == "ResNet":
             text_data = text_data.to(device)
         else:
@@ -38,7 +43,7 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
         target = target.to(device)
 
         # model forward
-        output = model(img_data, text_data)
+        output = model(img_data, text_data,tem_imgs, tem_txts, category, tem_cat)
 
         loss_dict = loss_utils.trans_vg_loss(output, target)
         losses = sum(loss_dict[k] for k in loss_dict.keys())
@@ -79,20 +84,25 @@ def validate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
     header = 'Eval:'
 
     for batch in metric_logger.log_every(data_loader, 10, header):
-        img_data, text_data, target = batch
+        ( img_data, text_data, target ,tem_imgs, tem_txts, tem_bboxes, category,tem_cat ) = batch
         if args.model_type == "ResNet":
             batch_size = img_data.tensors.size(0)
         else:
             batch_size = img_data.size(0)
         # copy to GPU
         img_data = img_data.to(device)
+        # tem_imgs와 tem_txts는 리스트이므로, 각 NestedTensor를 GPU로 이동시킴
+        tem_imgs = [tmpl.to(device) for tmpl in tem_imgs]
+        tem_txts = [tmpl.to(device) for tmpl in tem_txts]
+        tem_bboxes = [tmpl.to(device) for tmpl in tem_bboxes]
+
         if args.model_type == "ResNet":
             text_data = text_data.to(device)
         else:
             text_data = clip.tokenize(text_data).to(device)
         target = target.to(device)
 
-        pred_boxes = model(img_data, text_data)
+        pred_boxes = model(img_data, text_data, tem_imgs, tem_txts, category,tem_cat)
 
         loss_dict = loss_utils.trans_vg_loss(pred_boxes, target)
         losses = sum(loss_dict[k] for k in loss_dict.keys())
@@ -123,7 +133,7 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
     pred_box_list = []
     gt_box_list = []
     for _, batch in enumerate(tqdm(data_loader)):
-        img_data, text_data, target = batch
+        (img_data, text_data, target ,tem_imgs, tem_txts, tem_bboxes, category,tem_cat)= batch
         batch_size = img_data.tensors.size(0)
         # copy to GPU
         img_data = img_data.to(device)
@@ -131,8 +141,11 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
             text_data = text_data.to(device)
         else:
             text_data = clip.tokenize(text_data).to(device)
+        tem_imgs = [tmpl.to(device) for tmpl in tem_imgs]
+        tem_txts = [tmpl.to(device) for tmpl in tem_txts]
+        tem_bboxes = [tmpl.to(device) for tmpl in tem_bboxes]
         target = target.to(device)
-        output = model(img_data, text_data)
+        output = model(img_data, text_data, tem_imgs, tem_txts, category,tem_cat)
 
         pred_box_list.append(output.cpu())
         gt_box_list.append(target.cpu())

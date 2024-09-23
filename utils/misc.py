@@ -16,6 +16,8 @@ import torch
 import torch.distributed as dist
 from torch import Tensor
 
+import numpy as np
+
 # needed due to empty tensor bug in pytorch and torchvision 0.5
 import torchvision
 
@@ -299,18 +301,56 @@ def get_sha():
 #     return tuple(batch)
 
 
+# def collate_fn(raw_batch):
+#     raw_batch = list(zip(*raw_batch))
+    
+#     img = torch.stack(raw_batch[0])
+#     img_mask = torch.tensor(raw_batch[1])
+#     img_data = NestedTensor(img, img_mask)
+#     word_id = torch.tensor(raw_batch[2])
+#     word_mask = torch.tensor(raw_batch[3])
+#     text_data = NestedTensor(word_id, word_mask)
+#     bbox = torch.tensor(raw_batch[4])
+#     batch = [img_data, text_data, bbox]
+#     return tuple(batch)
+
 def collate_fn(raw_batch):
     raw_batch = list(zip(*raw_batch))
     
     img = torch.stack(raw_batch[0])
     img_mask = torch.tensor(raw_batch[1])
     img_data = NestedTensor(img, img_mask)
+    
     word_id = torch.tensor(raw_batch[2])
     word_mask = torch.tensor(raw_batch[3])
     text_data = NestedTensor(word_id, word_mask)
+    
     bbox = torch.tensor(raw_batch[4])
-    batch = [img_data, text_data, bbox]
+
+    cat = raw_batch[10]
+    template_category = raw_batch[11]
+
+    # 템플릿 데이터 처리
+    template_imgs = [torch.stack(tmpl) for tmpl in raw_batch[5]]  # 템플릿 이미지
+    template_img_masks = [torch.stack(tmpl) for tmpl in raw_batch[6]]  # 템플릿 이미지 마스크
+
+    # 템플릿 텍스트 ID와 마스크를 numpy에서 tensor로 변환
+    template_word_ids = [torch.stack([torch.tensor(id) if isinstance(id, np.ndarray) else id for id in tmpl]) for tmpl in raw_batch[7]]
+    template_word_masks = [torch.stack([torch.tensor(mask) if isinstance(mask, np.ndarray) else mask for mask in tmpl]) for tmpl in raw_batch[8]]
+
+    # 템플릿 bbox도 numpy에서 tensor로 변환
+    template_bboxes = [torch.stack([torch.tensor(bbox) if isinstance(bbox, np.ndarray) else bbox for bbox in tmpl]) for tmpl in raw_batch[9]]
+
+    template_img_data = [NestedTensor(tmpl_img, tmpl_img_mask) for tmpl_img, tmpl_img_mask in zip(template_imgs, template_img_masks)]  # 템플릿 이미지의 NestedTensor
+    template_text_data = [NestedTensor(tmpl_word_id, tmpl_word_mask) for tmpl_word_id, tmpl_word_mask in zip(template_word_ids, template_word_masks)]  # 템플릿 텍스트 NestedTensor
+    
+    batch = [img_data, text_data, bbox, template_img_data, template_text_data, template_bboxes, cat, template_category]
+    
     return tuple(batch)
+
+
+
+
 
 
 def collate_fn_clip(raw_batch):
@@ -517,3 +557,4 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
         return _new_empty_tensor(input, output_shape)
     else:
         return torchvision.ops.misc.interpolate(input, size, scale_factor, mode, align_corners)
+    
