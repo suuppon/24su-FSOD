@@ -1,2 +1,6 @@
 *.idea
 .DS_Store
+__pycache__
+*.pth
+ln_data/referit_data/
+data/
