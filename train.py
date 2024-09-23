@@ -108,7 +108,7 @@ def get_args_parser():
 
 
     # Dataset parameters
-    parser.add_argument('--data_root', type=str, default='/data1/shifengyuan/visual_grounding',
+    parser.add_argument('--data_root', type=str, default='/content/drive/MyDrive/fsod/Dynamic-MDETR/ln_data',
                         help='path to ReferIt splits data folder')
     parser.add_argument('--split_root', type=str, default='data',
                         help='location of pre-parsed dataset info')
@@ -139,6 +139,10 @@ def get_args_parser():
     parser.add_argument('--uniform_learnable', default=False, type=bool)
     parser.add_argument('--different_transformer', default=False, type=bool)
     parser.add_argument('--vl_fusion_enc_layers', default=3, type=int)
+
+    parser.add_argument('--pretrained_model', default='', type=str)
+
+
     return parser
 
 
@@ -236,7 +240,6 @@ def main(args):
     else:
         data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                        collate_fn=utils.collate_fn_clip, num_workers=args.num_workers)
-
         data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
                                      drop_last=False, collate_fn=utils.collate_fn_clip, num_workers=args.num_workers)
 
@@ -252,8 +255,16 @@ def main(args):
     elif args.detr_model is not None:
         checkpoint = torch.load(args.detr_model, map_location='cpu')
         missing_keys, unexpected_keys = model_without_ddp.visumodel.load_state_dict(checkpoint['model'], strict=False)
+        model = model_without_ddp
         print('Missing keys when loading detr model:')
         print(missing_keys)
+
+    if args.pretrained_model:
+      checkpoint = torch.load(args.pretrained_model, map_location='cpu')
+      missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'],strict=False)
+      model = model_without_ddp
+      print('Missing keys when loading dynamic-mdetr model:')
+      print(missing_keys)
 
     output_dir = Path(args.output_dir)
     if args.output_dir and utils.is_main_process():
