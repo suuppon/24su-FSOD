@@ -403,6 +403,7 @@ class GroundingDataset(data.Dataset):
         else:
             return (
                 img, # Tensor
+                img_mask, # Tensor
                 word_id, # Tensor
                 word_mask, # Tensor
                 bbox, #  Tensor
