@@ -23,145 +23,146 @@ def load_category_mapping(file_path):
       return category_to_idx, categories
 
 
-class CrossAttentionModule(nn.Module):
-    def __init__(self, d_model, n_heads):
-        super(CrossAttentionModule, self).__init__()
-        self.cross_attn = nn.MultiheadAttention(d_model, n_heads)
-        
-    def forward(self, text_features, visual_features, text_mask=None, visual_mask=None):
-        # Text to Visual attention
-        text_to_visual, _ = self.cross_attn(text_features, visual_features, visual_features, key_padding_mask=visual_mask)
-        
-        # Visual to Text attention
-        visual_to_text, _ = self.cross_attn(visual_features, text_features, text_features, key_padding_mask=text_mask)
-        
-        return text_to_visual, visual_to_text
-
 class DynamicMDETR(nn.Module):
-      def __init__(self, args):
-          super(DynamicMDETR, self).__init__()
-          hidden_dim = args.vl_hidden_dim
-          divisor = 16 if args.dilation else 32
-          self.num_visu_token = int((args.imsize / divisor) ** 2)
-          self.num_text_token = args.max_query_len
-          self.uniform_grid = args.uniform_grid
-          self.uniform_learnable = args.uniform_learnable
-          self.different_transformer = args.different_transformer
+    def __init__(self, args):
+        super(DynamicMDETR, self).__init__()
+        hidden_dim = args.vl_hidden_dim
+        divisor = 16 if args.dilation else 32
+        self.num_visu_token = int((args.imsize / divisor) ** 2)
+        self.num_text_token = args.max_query_len
+        self.uniform_grid = args.uniform_grid
+        self.uniform_learnable = args.uniform_learnable
+        self.different_transformer = args.different_transformer
 
-          # Category to index mapping from the file
-          category_file_path = "/content/drive/MyDrive/newdmdeter/24su-FSOD/datasets/coco_80.txt"
-          self.category_to_idx, self.categories = load_category_mapping(category_file_path)
+        # Category to index mapping from the file
+        category_file_path = '/content/drive/MyDrive/newdmdeter/24su-FSOD/datasets/coco_80.txt'
+        self.category_to_idx, self.categories = load_category_mapping(category_file_path)
 
-          # Add pseudo-class embedding (learnable token)
-          self.pseudo_class_embedding = nn.Embedding(80, hidden_dim)
+        # Add pseudo-class embedding (learnable token)
+        self.pseudo_class_embedding = nn.Embedding(80, hidden_dim)
 
-          # Add context embedding layer
-          self.context_embedding = nn.Linear(hidden_dim, hidden_dim)
+        # Add context embedding layer
+        # self.context_embedding = nn.Linear(hidden_dim, hidden_dim)  # For learning context from text and visual
 
-          self.visumodel = build_detr(args)
-          self.textmodel = build_bert(args)
+        self.visumodel = build_detr(args)
+        self.textmodel = build_bert(args)
 
-          num_total = self.num_visu_token + self.num_text_token
-          self.vl_pos_embed = nn.Embedding(num_total, hidden_dim)
-          self.vl_encoder = build_vl_encoder(args)
+        num_total = self.num_visu_token + self.num_text_token 
+        self.vl_pos_embed = nn.Embedding(num_total, hidden_dim) 
+        self.vl_encoder = build_vl_encoder(args)
+       
 
-          self.vl_pos_embed_template = nn.Embedding(num_total * 5, hidden_dim)
+        self.vl_pos_embed_template =  nn.Embedding(num_total*5, hidden_dim) 
 
-          self.visu_proj = nn.Linear(self.visumodel.num_channels, hidden_dim)
-          self.text_proj = nn.Linear(self.textmodel.num_channels, hidden_dim)
+        self.visu_proj = nn.Linear(self.visumodel.num_channels, hidden_dim)
+        self.text_proj = nn.Linear(self.textmodel.num_channels, hidden_dim)
 
-          # Cross-Attention Module
-          self.cross_attention = CrossAttentionModule(d_model=hidden_dim, n_heads=8)
+        # vl_encoder 인코더의 모든 파라미터를 얼림.
+        for param in self.vl_encoder.parameters():
+            param.requires_grad = False
+        for param in self.visumodel.parameters():
+            param.requires_grad = False
+        for param in self.textmodel.parameters():
+            param.requires_grad = False
+        for param in self.visu_proj.parameters():
+            param.requires_grad = False
+        for param in self.text_proj.parameters():
+            param.requires_grad = False
 
-          # Sampling relevant
-          self.visual_feature_map_h = 20
-          self.visual_feature_map_w = 20
-          self.in_points = args.in_points
-          self.stages = args.stages
-          self.sampleing_proj = nn.Linear(hidden_dim * 3, hidden_dim)
+        # Sampling relevant
+        self.visual_feature_map_h = 20
+        self.visual_feature_map_w = 20
+        self.in_points = args.in_points
+        self.stages = args.stages
 
-          self.offset_generators = nn.ModuleList([nn.Linear(hidden_dim, self.in_points * 2) for _ in range(args.stages)])
-          self.update_sampling_queries = nn.ModuleList(
-              [MLP(2 * hidden_dim, hidden_dim, hidden_dim, 2) for _ in range(args.stages)])
+        self.offset_generators = nn.ModuleList([nn.Linear(hidden_dim, self.in_points * 2) for i in range(args.stages)])
+        self.update_sampling_queries = nn.ModuleList(
+            [MLP(2 * hidden_dim, hidden_dim, hidden_dim, 2) for i in range(args.stages)])
 
-          self.init_reference_point = nn.Embedding(1, 2)
-          self.init_sampling_feature = nn.Embedding(1, hidden_dim)
+        self.init_reference_point = nn.Embedding(1, 2)
+        self.init_sampling_feature = nn.Embedding(1, hidden_dim)
 
-          self.init_weights()
+        self.init_weights()
 
-          if self.different_transformer:
-              self.vl_transformer = nn.ModuleList([build_vl_transformer(args) for _ in range(args.stages)])
-          else:
-              self.vl_transformer = build_vl_transformer(args)
+        if self.different_transformer:
+            self.vl_transformer = nn.ModuleList([build_vl_transformer(args) for i in range(args.stages)])
+        else:
+            self.vl_transformer = build_vl_transformer(args)
 
-          self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
 
-      def init_weights(self):
-          nn.init.constant_(self.init_reference_point.weight[:, 0], 0.5)
-          nn.init.constant_(self.init_reference_point.weight[:, 1], 0.5)
-          self.init_reference_point.weight.requires_grad = False
+    def init_weights(self):
+        nn.init.constant_(self.init_reference_point.weight[:, 0], 0.5)
+        nn.init.constant_(self.init_reference_point.weight[:, 1], 0.5)
+        self.init_reference_point.weight.requires_grad = False
 
-          for i in range(self.stages):
-              nn.init.zeros_(self.offset_generators[i].weight)
-              nn.init.uniform_(self.offset_generators[i].bias, -0.5, 0.5)
-          if not self.uniform_learnable:
-              self.offset_generators[0].weight.requires_grad = False
-              self.offset_generators[0].bias.requires_grad = False
+        for i in range(self.stages):
+            nn.init.zeros_(self.offset_generators[i].weight)
+            nn.init.uniform_(self.offset_generators[i].bias, -0.5, 0.5)
+        if not self.uniform_learnable:
+            self.offset_generators[0].weight.requires_grad = False
+            self.offset_generators[0].bias.requires_grad = False
 
-      def features_sampling(self, sampling_query, reference_point, feature_map, pos, stage):
-          bs, channel = sampling_query.shape
-          if self.uniform_grid:
-              if stage != 0:
-                  xy_offsets = self.offset_generators[stage](sampling_query).reshape(bs, self.in_points, 2)
-                  sampled_points = (xy_offsets.permute(1, 0, 2) + reference_point).permute(1, 0, 2)
-              else:
-                  sampled_points = self.initial_sampled_points.clone().repeat(bs, 1, 1)
-          else:
-              xy_offsets = self.offset_generators[stage](sampling_query).reshape(bs, self.in_points, 2)
-              sampled_points = (xy_offsets.permute(1, 0, 2) + reference_point).permute(1, 0, 2)
+    def feautures_sampling(self, sampling_query, reference_point, feature_map, pos, stage):
+        bs, channel = sampling_query.shape
+        if self.uniform_grid:
+            if stage != 0:
+                xy_offsets = self.offset_generators[stage](sampling_query).reshape(bs, self.in_points, 2)
+                sampled_points = (xy_offsets.permute(1, 0, 2) + reference_point).permute(1, 0, 2)  # (bs, in_points, 2)
+            else:
+                sampled_points = self.initial_sampled_points.clone().repeat(bs, 1, 1)
+        else:
+            xy_offsets = self.offset_generators[stage](sampling_query).reshape(bs, self.in_points, 2)
+            sampled_points = (xy_offsets.permute(1, 0, 2) + reference_point).permute(1, 0, 2)  # (bs, in_points, 2)
+        feature_map = feature_map.reshape(bs, channel, self.visual_feature_map_h, self.visual_feature_map_w)  # (bs, channel, h, w)
+        pos = pos.reshape(bs, channel, self.visual_feature_map_h, self.visual_feature_map_w)  # (bs, channel, h, w)
 
-          feature_map = feature_map.reshape(bs, channel, self.visual_feature_map_h, self.visual_feature_map_w)
-          pos = pos.reshape(bs, channel, self.visual_feature_map_h, self.visual_feature_map_w)
+        # [0,1] to [-1,1]
+        sampled_points = (2 * sampled_points) - 1
 
-          sampled_points = (2 * sampled_points) - 1
+        sampled_features = grid_sample(feature_map, sampled_points.unsqueeze(2), mode='bilinear', padding_mode='border',
+                                       align_corners=False).squeeze(-1)  # (bs, channel, in_points)
+        pe = grid_sample(pos, sampled_points.unsqueeze(2), mode='bilinear', padding_mode='border', align_corners=False).squeeze(-1)  # (bs, channel, in_points)
 
-          sampled_features = grid_sample(feature_map, sampled_points.unsqueeze(2), mode='bilinear', padding_mode='border',
-                                        align_corners=False).squeeze(-1)
-          pe = grid_sample(pos, sampled_points.unsqueeze(2), mode='bilinear', padding_mode='border', align_corners=False).squeeze(-1)
+        return sampled_features, pe
 
-          return sampled_features, pe
-
-      def forward(self, img_data, text_data, tem_imgs, tem_txts, category, tem_cats):
+    def forward(self, img_data, text_data, tem_imgs, tem_txts, category, tem_cats):
           bs = img_data.tensors.shape[0]
 
-          # Category to index
+          # Category를 숫자로 변환
           category_idx = torch.tensor([self.category_to_idx[cat] for cat in category], device=img_data.tensors.device)
 
           # 1. Feature Encoder - Target
 
           # 1.1 Visual Encoder
+          # visual backbone
           out, visu_pos = self.visumodel(img_data)
-          visu_mask, visu_src = out
-          visu_src = self.visu_proj(visu_src)
+          visu_mask, visu_src = out # (B, H*W), (H*W, B, channel)
+          visu_src = self.visu_proj(visu_src)  # (H*W, B, channel)
 
           # 1.2 Language Encoder
+          # language bert
           text_fea = self.textmodel(text_data)
           text_src, text_mask = text_fea.decompose()
           assert text_mask is not None
-          text_mask = text_mask.flatten(1)
-          text_src = self.text_proj(text_src).permute(1, 0, 2)
+          # text_src: (bs, max_len, channel)
+          text_mask = text_mask.flatten(1)  # (B, max_len)
+          text_src = self.text_proj(text_src).permute(1, 0, 2)  # (max_len, B, channel)
 
-          # 1.3 Apply Cross-Attention
-          text_to_visual, visual_to_text = self.cross_attention(text_src, visu_src, text_mask, visu_mask)
-
-          # Combine the enhanced text and visual features
-          vl_src = torch.cat([visual_to_text, text_to_visual], dim=0)
+          # 1.3 Concat visual features and language features
+          vl_src = torch.cat([visu_src, text_src], dim=0)
           vl_mask = torch.cat([visu_mask, text_mask], dim=1)
           vl_pos = self.vl_pos_embed.weight.unsqueeze(1).repeat(1, bs, 1)
 
+          # print(vl_src.size()) torch.Size([440, 8, 256])
+          # print(vl_pos.size()) torch.Size([440, 8, 256])
+          # print(vl_mask.size()) torch.Size([8, 440])
+          # print(text_mask.size()) torch.Size([8, 40])
+
           # 2. Multimodal Transformer
+          # 2.1 Multimodal Transformer Encoder
           if self.vl_encoder is not None:
-              vl_feat = self.vl_encoder(vl_src, vl_mask, vl_pos)
+              vl_feat = self.vl_encoder(vl_src, vl_mask, vl_pos)  # (L+N)xBxC
           else:
               vl_feat = vl_src
 
@@ -253,7 +254,7 @@ class DynamicMDETR(nn.Module):
 
           for i in range(self.stages):
               # 2d adaptive pooling
-              sampled_features, pe = self.features_sampling(sampling_query, reference_point, visu_feat.permute(1, 2, 0), v_pos.permute(1, 2, 0), i)
+              sampled_features, pe = self.feautures_sampling(sampling_query, reference_point, visu_feat.permute(1, 2, 0), v_pos.permute(1, 2, 0), i)
 
               ## Text guided decoding with one-layer transformer encoder-decoder
               ## language_feat와 template_combined_src를 결합하여 사용
