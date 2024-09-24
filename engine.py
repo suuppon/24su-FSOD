@@ -36,10 +36,10 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
             text_data = text_data.to(device)
         else:
             text_data = clip.tokenize(text_data).to(device)
-        tem_imgs = tem_imgs.to(device)
-        tem_txts = tem_txts.to(device)
-        category = category.to(device)
-        tem_cat = tem_cat.to(device)
+            
+        # tem_imgs와 tem_txts는 리스트이므로, 각 NestedTensor를 GPU로 이동시킴
+        tem_imgs = [tmpl.to(device) for tmpl in tem_imgs]
+        tem_txts = [tmpl.to(device) for tmpl in tem_txts]
 
         # model forward
         output = model(img_data, text_data,tem_imgs, tem_txts, category, tem_cat)
