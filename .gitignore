@@ -15,6 +15,7 @@ outputs/
 
 # 기타 특정 폴더 무시
 ln_data/other/
+ln_data/referit_data/
 
 # 모델 관련 캐시 파일 무시
 models/__pycache__/

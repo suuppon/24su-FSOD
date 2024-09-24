@@ -314,82 +314,107 @@ class GroundingDataset(data.Dataset):
     def __len__(self):
         # return int(len(self.images) / 10)
         return len(self.images)
+
     def __getitem__(self, idx):
-      # Target 데이터 가져오기
-      img, phrase, bbox, templates , category= self.pull_item(idx)
-      phrase = phrase.lower()
+        # Target 데이터 가져오기
+        img, phrase, bbox, templates, category = self.pull_item(idx)
+        phrase = phrase.lower()
 
-      # Target 데이터 전처리
-      input_dict = {'img': img, 'box': bbox, 'text': phrase}
-      input_dict = self.transform(input_dict)
-      img = input_dict['img']
-      bbox = input_dict['box']
-      phrase = input_dict['text']
-      img_mask = input_dict['mask']  # 타겟 이미지 마스크
-      category = category
+        # Target 데이터 전처리
+        input_dict = {'img': img, 'box': bbox, 'text': phrase}
+        input_dict = self.transform(input_dict)
+        img = input_dict['img']
+        bbox = input_dict['box']
+        phrase = input_dict['text']
+        img_mask = input_dict['mask']  # 타겟 이미지 마스크
+        category = category
 
-      # BERT 텍스트 인코딩 (Target)
-      if self.lstm:
-          phrase = self.tokenize_phrase(phrase)
-          word_id = phrase
-          word_mask = np.array(word_id > 0, dtype=int)
-      else:
-          examples = read_examples(phrase, idx)
-          features = convert_examples_to_features(examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
-          word_id = features[0].input_ids
-          word_mask = features[0].input_mask
+        # BERT 텍스트 인코딩 (Target)
+        if self.lstm:
+            phrase = self.tokenize_phrase(phrase)
+            word_id = torch.tensor(phrase, dtype=torch.long)
+            word_mask = (word_id > 0).long()
+        else:
+            examples = read_examples(phrase, idx)
+            features = convert_examples_to_features(examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
+            word_id = torch.tensor(features[0].input_ids, dtype=torch.long)
+            word_mask = torch.tensor(features[0].input_mask, dtype=torch.long)
 
-      # 템플릿 처리
-      template_imgs = []
-      template_img_masks = []  # 템플릿 이미지 마스크 추가
-      template_word_ids = []
-      template_word_masks = []
-      template_bboxes = []
-      template_cats = []
+        # 템플릿 데이터 처리
+        template_imgs, template_img_masks, template_word_ids, template_word_masks, template_bboxes, template_cats = [], [], [], [], [], []
 
-      for template in templates:
-          temp_img_file, temp_bbox, temp_phrase, temp_cat = template[0], template[1], template[2],  template[3]
-          temp_phrase = temp_phrase.lower()
-          temp_phrase = f'a photo of {temp_cat}'
+        for template in templates:
+            temp_img_file, temp_bbox, temp_phrase, temp_cat = template[0], template[1], template[2], template[3]
+            temp_phrase = f'a photo of {temp_cat}'.lower()
 
-          # 템플릿 이미지 변환
-          temp_img_path = osp.join(self.im_dir, temp_img_file)
-          temp_img = Image.open(temp_img_path).convert("RGB")
-          # 템플릿 이미지 크롭
-          temp_img = temp_img.crop((temp_bbox.tolist()))
-          temp_input_dict = self.transform({'img': temp_img, 'box': temp_bbox, 'text': temp_phrase})
+            # 템플릿 이미지 로드 및 크롭
+            temp_img_path = osp.join(self.im_dir, temp_img_file)
+            temp_img = Image.open(temp_img_path).convert("RGB")
+            temp_img = temp_img.crop(temp_bbox.tolist())  # 바운딩 박스 크롭
 
-          # 템플릿 이미지와 마스크 처리
-          temp_img = temp_input_dict['img']
-          temp_img_mask = temp_input_dict['mask']  # 템플릿 이미지 마스크 처리
-          
-          temp_phrase = temp_input_dict['text']
+            # 템플릿 데이터 전처리
+            temp_input_dict = {'img': temp_img, 'box': temp_bbox, 'text': temp_phrase}
+            temp_input_dict = self.transform(temp_input_dict)
 
-          # 템플릿 텍스트 BERT 인코딩
-          if self.lstm:
-              temp_phrase = self.tokenize_phrase(temp_phrase)
-              temp_word_id = temp_phrase
-              temp_word_mask = np.array(temp_word_id > 0, dtype=int)
-          else:
-              examples = read_examples(temp_phrase, idx)
-              features = convert_examples_to_features(examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
-              temp_word_id = features[0].input_ids
-              temp_word_mask = features[0].input_mask
+            temp_img = temp_input_dict['img']
+            temp_img_mask = temp_input_dict['mask']
+            temp_phrase = temp_input_dict['text']
 
-          # 템플릿 이미지 및 텍스트 임베딩 저장
-          template_imgs.append(temp_img)
-          template_img_masks.append(temp_img_mask)  # 템플릿 마스크 추가
-          template_word_ids.append(np.array(temp_word_id, dtype=int))
-          template_word_masks.append(np.array(temp_word_mask, dtype=int))
-          template_bboxes.append(np.array(temp_bbox, dtype=np.float32))
-          template_cats.append(temp_cat)
+            # 템플릿 텍스트 BERT 인코딩
+            if self.lstm:
+                temp_phrase = self.tokenize_phrase(temp_phrase)
+                temp_word_id = torch.tensor(temp_phrase, dtype=torch.long)
+                temp_word_mask = (temp_word_id > 0).long()
+            else:
+                examples = read_examples(temp_phrase, idx)
+                features = convert_examples_to_features(examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
+                temp_word_id = torch.tensor(features[0].input_ids, dtype=torch.long)
+                temp_word_mask = torch.tensor(features[0].input_mask, dtype=torch.long)
 
-      if self.testmode:
-          return (img, np.array(word_id, dtype=int), np.array(word_mask, dtype=int), np.array(bbox, dtype=np.float32), 
-                  template_imgs, template_img_masks, template_word_ids, template_word_masks, template_bboxes, self.images[idx][0], category,template_cats)
-      else:
-          return (img, np.array(img_mask), np.array(word_id, dtype=int), np.array(word_mask, dtype=int), np.array(bbox, dtype=np.float32), 
-                  template_imgs, template_img_masks, template_word_ids, template_word_masks, template_bboxes, category,template_cats)
+            # 템플릿 데이터 리스트에 추가
+            template_imgs.append(temp_img)
+            template_img_masks.append(temp_img_mask)
+            template_word_ids.append(temp_word_id),
+            template_word_masks.append(temp_word_mask),
+            template_bboxes.append(temp_bbox),
+            template_cats.append(temp_cat)
+
+        # 템플릿 데이터를 배치 형태로 통합
+        template_imgs = torch.stack(template_imgs)
+        template_img_masks = torch.stack(template_img_masks)
+        templage_word_ids = torch.stack(template_word_ids)
+        template_word_masks = torch.stack(template_word_masks)
+        template_bboxes = torch.stack(template_bboxes)
+
+        if self.testmode:
+            return (
+                img, # Tensor
+                word_id,
+                word_mask,
+                bbox,
+                template_imgs,
+                template_img_masks,
+                template_word_ids,
+                template_word_masks,
+                template_bboxes,
+                category,
+                template_cats
+            )
+        else:
+            return (
+                img, # Tensor
+                img_mask, # Tensor
+                word_id, # Tensor
+                word_mask, # Tensor
+                bbox, #  Tensor
+                template_imgs, # Tensor
+                template_img_masks, # Tensor
+                template_word_ids, # List[Tensor]
+                template_word_masks, # List[Tensor]
+                template_bboxes, # List[Tensor]
+                category, # List[str]
+                template_cats # List[List[str]]
+            )
 
 
 
