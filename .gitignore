@@ -1,6 +1,27 @@
-*.idea
-.DS_Store
-__pycache__
-*.pth
-ln_data/referit_data/
+# Python 캐시 파일들 무시
+__pycache__/
+*.py[cod]
+
+# 체크포인트 파일 무시
+checkpoints/*.pth
+
+# 데이터 파일들 무시
 data/
+datasets/__pycache__/
+datasets/coco_80.txt
+
+# 임시 출력 파일 무시
+outputs/
+
+# 기타 특정 폴더 무시
+ln_data/other/
+ln_data/referit_data/
+
+# 모델 관련 캐시 파일 무시
+models/__pycache__/
+models/clip/__pycache__/
+models/language_model/__pycache__/
+models/visual_model/__pycache__/
+
+# 유틸리티 관련 캐시 파일 무시
+utils/__pycache__/

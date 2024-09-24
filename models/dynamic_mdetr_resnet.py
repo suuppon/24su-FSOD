@@ -35,7 +35,7 @@ class DynamicMDETR(nn.Module):
         self.different_transformer = args.different_transformer
 
         # Category to index mapping from the file
-        category_file_path = 'GroundVLP/coco_80.txt'
+        category_file_path = '/content/drive/MyDrive/newdmdeter/24su-FSOD/datasets/coco_80.txt'
         self.category_to_idx, self.categories = load_category_mapping(category_file_path)
 
         # Add pseudo-class embedding (learnable token)

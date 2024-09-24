@@ -1,22 +1,18 @@
 import argparse
 import datetime
-import json
 import random
 import time
-import math
 
 import numpy as np
 from pathlib import Path
 
 import torch
-import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader, DistributedSampler
 
-import datasets
 import utils.misc as utils
 from models import build_model
 from datasets import build_dataset
-from engine import train_one_epoch, evaluate
+from engine import inference
 
 
 def get_args_parser():
@@ -149,13 +145,13 @@ def main(args):
 
     device = torch.device(args.device)
 
-    # # fix the seed for reproducibility
+    # Fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
-    # build model
+    # Build model
     model = build_model(args)
     model.to(device)
 
@@ -166,53 +162,45 @@ def main(args):
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('number of params:', n_parameters)
 
-    # build dataset
+    # Build dataset
     dataset_test = build_dataset(args.eval_set, args)
-    ## note certain dataset does not have 'test' set:
-    ## 'unc': {'train', 'val', 'trainval', 'testA', 'testB'}
-    # dataset_test  = build_dataset('test', args)
-    
+
     if args.distributed:
         sampler_test = DistributedSampler(dataset_test, shuffle=False)
     else:
         sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-    
-    batch_sampler_test = torch.utils.data.BatchSampler(
-        sampler_test, args.batch_size, drop_last=False)
 
-    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test,
-                                 drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+    data_loader_test = DataLoader(dataset_test, args.batch_size, sampler=sampler_test, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 
+    # Load model checkpoint
     checkpoint = torch.load(args.eval_model, map_location='cpu')
     model_without_ddp.load_state_dict(checkpoint['model'])
 
-    # output log
+    # Output log
     output_dir = Path(args.output_dir)
     if args.output_dir and utils.is_main_process():
-        with (output_dir / "eval_log.txt").open("a") as f:
+        with (output_dir / "inference_log.txt").open("a") as f:
             f.write(str(args) + "\n")
-    
+
     start_time = time.time()
-    
-    # perform evaluation
-    accuracy = evaluate(args, model, data_loader_test, device)
-    
+
+    # Perform inference
+    inference(args, model, data_loader_test, device)
+
     if utils.is_main_process():
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print('Training time {}'.format(total_time_str))
+        print('Inference time {}'.format(total_time_str))
 
-        log_stats = {'test_model:': args.eval_model,
-                    '%s_set_accuracy'%args.eval_set: accuracy,
-                    }
-        print(log_stats)
         if args.output_dir and utils.is_main_process():
-                with (output_dir / "eval_log.txt").open("a") as f:
-                    f.write(json.dumps(log_stats) + "\n")
+            with (output_dir / "inference_log.txt").open("a") as f:
+                f.write(f"Inference completed in {total_time_str}\n")
+
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Dynamic MDETR evaluation script', parents=[get_args_parser()])
+    parser = argparse.ArgumentParser('Dynamic MDETR inference script', parents=[get_args_parser()])
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)
+
