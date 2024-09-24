@@ -65,7 +65,9 @@ def build_dataset(split, args):
                             dataset=args.dataset,
                             split=split,
                             transform=make_transforms(args, split),
-                            max_query_len=args.max_query_len)
+                            max_query_len=args.max_query_len,
+                            num_templates=args.num_templates, 
+                            template_classes=args.template_classes)
     else:
         return GroundingDatasetCLIP(data_root=args.data_root,
                                 split_root=args.split_root,
