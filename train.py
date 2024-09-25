@@ -116,7 +116,7 @@ def get_args_parser():
                         help='referit/unc/unc+/gref/gref_umd')
     parser.add_argument('--max_query_len', default=20, type=int,
                         help='maximum time steps (lang length) per batch')
-    parser.add_argument('--category_file_path', type=str, default='GroundVLP/coco_80.txt',
+    parser.add_argument('--category_file_path', type=str, default='data/coco_80.txt',
                         help='path to category file')
     parser.add_argument('--num_templates', default=5, type=int,
                         help='number of templates')
@@ -171,8 +171,18 @@ def main(args):
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
         model_without_ddp = model.module
+        
+# 학습 중인 레이어 이름 출력
+    trainable_layers = [name for name, param in model.named_parameters() if param.requires_grad]
+
+    print(f"Trainable layers ({len(trainable_layers)} total):")
+    for idx, layer in enumerate(trainable_layers, 1):
+        print(f"{idx}. {layer}")
+
+    # 학습 중인 파라미터 수 출력
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print('number of params:', n_parameters)
+    print(f'\nNumber of trainable parameters: {n_parameters:,}')
+    
     if args.model_type == "ResNet":
         visu_cnn_param = [p for n, p in model_without_ddp.named_parameters() if (("visumodel" in n) and ("backbone" in n) and p.requires_grad)]
         visu_tra_param = [p for n, p in model_without_ddp.named_parameters() if (("visumodel" in n) and ("backbone" not in n) and p.requires_grad)]
