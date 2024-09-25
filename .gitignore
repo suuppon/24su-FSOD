@@ -25,3 +25,6 @@ models/visual_model/__pycache__/
 
 # 유틸리티 관련 캐시 파일 무시
 utils/__pycache__/
+
+# 디버깅 파일 무시
+.vscode/
