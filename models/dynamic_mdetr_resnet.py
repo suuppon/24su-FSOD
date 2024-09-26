@@ -22,6 +22,19 @@ def load_category_mapping(file_path):
       category_to_idx = {category: idx for idx, category in enumerate(categories)}
       return category_to_idx, categories
 
+class CrossAttentionModule(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(CrossAttentionModule, self).__init__()
+        self.cross_attn = nn.MultiheadAttention(d_model, n_heads)
+        
+    def forward(self, text_features, visual_features, text_mask=None, visual_mask=None):
+        # Text to Visual attention
+        text_to_visual, _ = self.cross_attn(text_features, visual_features, visual_features, key_padding_mask=visual_mask)
+        
+        # Visual to Text attention
+        visual_to_text, _ = self.cross_attn(visual_features, text_features, text_features, key_padding_mask=text_mask)
+        
+        return text_to_visual, visual_to_text
 
 class DynamicMDETR(nn.Module):
     def __init__(self, args):
@@ -56,6 +69,10 @@ class DynamicMDETR(nn.Module):
 
         self.visu_proj = nn.Linear(self.visumodel.num_channels, hidden_dim)
         self.text_proj = nn.Linear(self.textmodel.num_channels, hidden_dim)
+        
+    
+        # Cross-Attention Module
+        self.cross_attention = CrossAttentionModule(d_model=hidden_dim, n_heads=8)
 
         # vl_encoder 인코더의 모든 파라미터를 얼림.
         for param in self.vl_encoder.parameters():
@@ -176,9 +193,12 @@ class DynamicMDETR(nn.Module):
             # text_src: (bs, max_len, channel)
             text_mask = text_mask.flatten(1)  # (B, max_len)
             text_src = self.text_proj(text_src).permute(1, 0, 2)  # (max_len, B, channel)
+            
+            # 1.3 Apply Cross-Attention
+            text_to_visual, visual_to_text = self.cross_attention(text_src, visu_src, text_mask, visu_mask)
 
-            # 1.3 Concat visual features and language features
-            vl_src = torch.cat([visu_src, text_src], dim=0)
+            # 1.4 Concat visual features and language features
+            vl_src = torch.cat([visual_to_text, text_to_visual], dim=0)
             vl_mask = torch.cat([visu_mask, text_mask], dim=1)
             vl_pos = self.vl_pos_embed.weight.unsqueeze(1).repeat(1, bs, 1)
 
