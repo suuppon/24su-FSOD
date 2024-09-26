@@ -52,6 +52,8 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
 
         # model forward
         output = model(img_data, text_data,tem_imgs, tem_txts, category, tem_cat)
+        if output is None:
+            print("Error: Model returned None.")
 
         if args.contrastive_loss == 1:
           loss_dict = loss_utils.trans_vg_contrast(output, target)

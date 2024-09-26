@@ -72,7 +72,9 @@ class DynamicMDETR(nn.Module):
         
     
         # Cross-Attention Module
-        self.cross_attention = CrossAttentionModule(d_model=hidden_dim, n_heads=8)
+        self.use_cross_attention = args.use_cross_attention
+        if self.use_cross_attention:
+            self.cross_attention = CrossAttentionModule(d_model=hidden_dim, n_heads=8)
 
         # vl_encoder 인코더의 모든 파라미터를 얼림.
         for param in self.vl_encoder.parameters():
@@ -195,10 +197,13 @@ class DynamicMDETR(nn.Module):
             text_src = self.text_proj(text_src).permute(1, 0, 2)  # (max_len, B, channel)
             
             # 1.3 Apply Cross-Attention
-            text_to_visual, visual_to_text = self.cross_attention(text_src, visu_src, text_mask, visu_mask)
+            if self.use_cross_attention:
+                text_to_visual, visual_to_text = self.cross_attention(text_src, visu_src, text_mask, visu_mask)
+                vl_src = torch.cat([visual_to_text, text_to_visual], dim=0)
+            else:
+                vl_src = torch.cat([visu_src, text_src], dim=0)
 
             # 1.4 Concat visual features and language features
-            vl_src = torch.cat([visual_to_text, text_to_visual], dim=0)
             vl_mask = torch.cat([visu_mask, text_mask], dim=1)
             vl_pos = self.vl_pos_embed.weight.unsqueeze(1).repeat(1, bs, 1)
 
