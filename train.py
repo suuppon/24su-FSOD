@@ -108,7 +108,7 @@ def get_args_parser():
 
 
     # Dataset parameters
-    parser.add_argument('--data_root', type=str, default='ln_data/referit_data',
+    parser.add_argument('--data_root', type=str, default='/content/drive/MyDrive/fsod/Dynamic-MDETR/ln_data',
                         help='path to ReferIt splits data folder')
     parser.add_argument('--split_root', type=str, default='data',
                         help='location of pre-parsed dataset info')
@@ -118,10 +118,14 @@ def get_args_parser():
                         help='maximum time steps (lang length) per batch')
     parser.add_argument('--category_file_path', type=str, default='data/coco_80.txt',
                         help='path to category file')
+    
+    # Template Parameters
     parser.add_argument('--num_templates', default=5, type=int,
                         help='number of templates')
     parser.add_argument('--template_classes', default=3, type=int,
-                        help='number of classes in template')
+                        help='number of classes in template')  
+    parser.add_argument('--cropped_templates', default=1, type=int,
+                        help='Determine where cropp template imgs.')    # if 1, crop                      
     
     # dataset parameters
     parser.add_argument('--output_dir', default='./outputs',
