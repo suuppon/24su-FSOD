@@ -406,8 +406,7 @@ class GroundingDataset(data.Dataset):
 
             else :
               temp_input_dict = {'img': temp_img, 'box': temp_bbox, 'text': temp_phrase}
-            
-            temp_input_dict = self.transform(temp_input_dict)
+              temp_input_dict = self.transform(temp_input_dict)
 
             temp_img = temp_input_dict['img']
             temp_img_mask = temp_input_dict['mask']
