@@ -119,6 +119,7 @@ def integrate_single_data(ann_files, data_root):
                 phrase = category_name
     
             integrated_data.append((img_path_w_prefix, '', bbox, phrase, '', category_name))
+            print("Image file {} is integrated".format(img_path_w_prefix))
         
         
         print("Annotation file {} is integrated".format(ann_path))
