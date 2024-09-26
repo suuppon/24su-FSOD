@@ -109,6 +109,29 @@ def yolo_loss(pred_list, target, gi, gj, best_n_list, device, w_coord=5., w_neg=
     return (loss_x + loss_y + loss_w + loss_h) * w_coord + loss_conf
 
 
+def trans_vg_contrast(batch_pred, batch_target):
+    """Compute the losses related to the bounding boxes, 
+       including the L1 regression loss and the GIoU loss
+    """
+    batch_pred = batch_pred[0]
+    batch_contrast = batch_pred[1]
+    batch_size = batch_pred.shape[0]
+    # world_size = get_world_size()
+    num_boxes = batch_size
+
+    loss_bbox = F.l1_loss(batch_pred, batch_target, reduction='none')
+    loss_giou = 1 - torch.diag(generalized_box_iou(
+        xywh2xyxy(batch_pred),
+        xywh2xyxy(batch_target)
+    ))
+
+    losses = {}
+    losses['loss_bbox'] = loss_bbox.sum() / num_boxes
+    losses['loss_giou'] = loss_giou.sum() / num_boxes
+    losses['loss_contrastive'] = batch_contrast.sum()
+
+    return losses
+
 def trans_vg_loss(batch_pred, batch_target):
     """Compute the losses related to the bounding boxes, 
        including the L1 regression loss and the GIoU loss
