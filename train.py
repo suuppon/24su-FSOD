@@ -157,7 +157,7 @@ def get_args_parser():
     parser.add_argument('--pretrained_model', default='', type=str)
 
     # cross-attention 할건지 말건지 args 추가 
-    parser.add_argument("--use_cross_attention", action='store_true', help="Whether to use cross-attention module")
+    parser.add_argument('--use_cross_attention', type=int, default=0, help='Use cross attention if 1, otherwise 0')
 
     return parser
 

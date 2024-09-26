@@ -197,7 +197,7 @@ class DynamicMDETR(nn.Module):
             text_src = self.text_proj(text_src).permute(1, 0, 2)  # (max_len, B, channel)
             
             # 1.3 Apply Cross-Attention
-            if self.use_cross_attention:
+            if int(self.use_cross_attention) == 1:
                 text_to_visual, visual_to_text = self.cross_attention(text_src, visu_src, text_mask, visu_mask)
                 vl_src = torch.cat([visual_to_text, text_to_visual], dim=0)
             else:
