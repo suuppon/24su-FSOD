@@ -39,6 +39,7 @@ class DynamicMDETR(nn.Module):
 
         # Add pseudo-class embedding (learnable token)
         self.pseudo_class_embedding = nn.Embedding(80, hidden_dim)
+        self.contrastive_loss = args.contrastive_loss
 
         # Add context embedding layer
         # self.context_embedding = nn.Linear(hidden_dim, hidden_dim)  # For learning context from text and visual
@@ -124,6 +125,37 @@ class DynamicMDETR(nn.Module):
         pe = grid_sample(pos, sampled_points.unsqueeze(2), mode='bilinear', padding_mode='border', align_corners=False).squeeze(-1)  # (bs, channel, in_points)
 
         return sampled_features, pe
+
+    def contrastive_loss(target_feats, template_feats, pos_mask, neg_mask):
+      """
+      Calculates contrastive loss between target features and template features.
+
+      Args:
+          target_feats (Tensor): Target feature vectors of shape (batch_size, 1, hidden_dim).
+          template_feats (Tensor): Template feature vectors of shape (batch_size, num_templates, hidden_dim).
+          pos_mask (Tensor): Mask indicating positive pairs (1 for positive, 0 otherwise).
+          neg_mask (Tensor): Mask indicating negative pairs (1 for negative, 0 otherwise).
+
+      Returns:
+          loss (Tensor): Calculated contrastive loss.
+      """
+      # Normalize the input feature vectors along the last dimension
+      target_feats = F.normalize(target_feats, dim=-1)
+      template_feats = F.normalize(template_feats, dim=-1)
+      
+      # Compute similarity matrix (batch_size, 1, num_templates)
+      sim_matrix = torch.matmul(target_feats, template_feats.transpose(1, 2))
+      
+      # Compute the positive loss component (masked by pos_mask)
+      pos_loss = (pos_mask * F.logsigmoid(sim_matrix)).sum()
+      
+      # Compute the negative loss component (masked by neg_mask)
+      neg_loss = (neg_mask * F.logsigmoid(-sim_matrix)).sum()
+      
+      # Calculate total contrastive loss
+      contrastive_loss = -(pos_loss + neg_loss) / (pos_mask.sum() + neg_mask.sum() + 1e-8)  # Avoid division by zero
+      
+      return contrastive_loss
 
     def forward(self, img_data, text_data, tem_imgs, tem_txts, category, tem_cats):
             bs = img_data.tensors.shape[0]
@@ -235,9 +267,47 @@ class DynamicMDETR(nn.Module):
             template_combined_src = template_combined_src.permute(1, 0, 2) 
             # (hidden_dim, num_templates)
             template_combined_mask = template_combined_mask.permute(1, 0)
+            
+            ### 4. Contrastive Loss Calculation
+            contrastive_loss = 0
+            # Normalize features
+            if self.contrastive_loss == 1 :
+              target_feats = F.normalize(vl_feat, dim=-1)  # Use target features
+              template_feats = F.normalize(template_combined_src, dim=-1)  # Use template combined features
 
+              # print(target_feats.size()) #torch.Size([440, 8, 256])
+              target_feats = target_feats.mean(dim=0, keepdim=True).repeat_interleave(15, dim = 0) # (15,8,256)
+              # print(target_feats.permute(1, 0, 2).size()) #torch.Size([8, 15, 256])
 
-            # 4. Dynamic Multimodal Transformer Decoder
+              # Compute similarity matrix
+              # target_feats.permute(1, 0, 2) : torch.Size([8, 15, 256])  / template_feats.permute(1, 2, 0) : torch.Size([8, 256, 15]) 
+              sim_matrix = torch.matmul(target_feats.permute(1, 0, 2), template_feats.permute(1, 2, 0))  # (bs, num_templates, num_templates)
+              # print(sim_matrix.size()) 
+              '''
+              sim_matrix[i, j, k]
+              : i번째 배치에서 j번째 타겟 특징(임베딩)과 k번째 템플릿 특징(임베딩) 간의 유사도 값
+              '''
+
+              # Positive and negative mask calculation
+              pos_mask = torch.zeros_like(sim_matrix, dtype=torch.bool)  # Initialize positive mask
+              neg_mask = torch.ones_like(sim_matrix, dtype=torch.bool)  # Initialize negative mask
+
+              for i in range(bs):
+                  for k in range(num_templates):
+                      for j in range(num_templates):
+                          # Assuming `category` is the target category and `tem_cats` contain template categories
+                          # If the category of the target matches the category of the template, it's a positive pair
+                          if category[i] == tem_cats[i][j]:
+                              pos_mask[i, k, j] = 1  # Positive mask for matching categories
+                              neg_mask[i, k, j] = 0  # Exclude from negative mask
+
+              # Contrastive loss calculation
+              pos_loss = (pos_mask * F.logsigmoid(sim_matrix)).sum()
+              neg_loss = (neg_mask * F.logsigmoid(-sim_matrix)).sum()
+              contrastive_loss = -(pos_loss + neg_loss) / (pos_mask.sum() + neg_mask.sum() + 1e-8)  # Avoid division by zero
+
+            
+            ### 5. Dynamic Multimodal Transformer Decoder
             sampling_query = self.init_sampling_feature.weight.repeat(bs, 1)
             reference_point = self.init_reference_point.weight.repeat(bs, 1)
 
@@ -298,7 +368,7 @@ class DynamicMDETR(nn.Module):
                 reference_point = pred_box[:, :2]
                 sampling_query = self.update_sampling_queries[i](torch.cat((vg_hs, sampling_query), dim=1))
 
-            return pred_box
+            return pred_box, contrastive_loss
 
         
       # bs = img_data.tensors.shape[0]
