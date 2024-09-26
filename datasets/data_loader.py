@@ -393,17 +393,20 @@ class GroundingDataset(data.Dataset):
 
         for template in templates:
             temp_img_file, temp_bbox, temp_phrase, temp_cat = template[0], template[1], template[2], template[3]
+            temp_img_path = osp.join(self.im_dir, temp_img_file)
+            temp_img = Image.open(temp_img_path).convert("RGB")
+
             if self.cropped_templates == 1:
               temp_phrase = f'a photo of {temp_cat}'.lower()
 
-              # 템플릿 이미지 로드 및 크롭
-              temp_img_path = osp.join(self.im_dir, temp_img_file)
-              temp_img = Image.open(temp_img_path).convert("RGB")
+              # 템플릿 이미지크롭
               temp_img = temp_img.crop(temp_bbox.tolist())  # 바운딩 박스 크롭
               # print('cropped')
+              temp_input_dict = self.transform({'img': temp_img, 'text': temp_phrase})
 
-            # 템플릿 데이터 전처리
-            temp_input_dict = {'img': temp_img, 'box': temp_bbox, 'text': temp_phrase}
+            else :
+              temp_input_dict = {'img': temp_img, 'box': temp_bbox, 'text': temp_phrase}
+            
             temp_input_dict = self.transform(temp_input_dict)
 
             temp_img = temp_input_dict['img']
