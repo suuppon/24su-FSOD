@@ -173,7 +173,8 @@ class DynamicMDETR(nn.Module):
             ## 템플릿 피처 결합 및 평균 풀링
             template_combined_feats = []  # 템플릿별로 결합된 피처 저장용 리스트
             template_combined_masks = []  # 템플릿별 마스크 저장용 리스트
-
+            
+            # TODO : 반복문을 텐서로 결합
             for i in range(bs):
                 
                 # 2.1 Visual Encoder for Template
