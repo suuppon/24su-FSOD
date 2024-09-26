@@ -55,6 +55,10 @@ def get_args_parser():
                         help="Name of model to be exploited.")
     parser.add_argument('--model_type', type=str, default='ResNet', choices=('ResNet', 'CLIP'),
                         help="Name of model to be exploited.")
+
+    # loss
+    parser.add_argument('--contrastive_loss', default=0, type=int,
+                        help='Determine whether contrastive loss for pseudo embedding.') # if 1, use loss
     
     # DETR parameters
     # * Backbone
