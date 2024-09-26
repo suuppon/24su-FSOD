@@ -212,7 +212,7 @@ class GroundingDataset(data.Dataset):
     }
 
     def __init__(self, data_root, split_root='data', dataset='referit', 
-                 transform=None, return_idx=False, testmode=False,
+                 transform=None, cropped_templates =1 ,return_idx=False, testmode=False,
                  split='train', max_query_len=128, lstm=False, 
                  bert_model='bert-base-uncased',
                  num_templates:int=2, template_classes:int=3):
@@ -230,6 +230,8 @@ class GroundingDataset(data.Dataset):
         
         self.num_templates = num_templates
         self.template_classes = template_classes
+
+        self.cropped_templates = cropped_templates
 
         assert self.transform is not None
 
@@ -391,12 +393,14 @@ class GroundingDataset(data.Dataset):
 
         for template in templates:
             temp_img_file, temp_bbox, temp_phrase, temp_cat = template[0], template[1], template[2], template[3]
-            temp_phrase = f'a photo of {temp_cat}'.lower()
+            if self.cropped_templates == 1:
+              temp_phrase = f'a photo of {temp_cat}'.lower()
 
-            # 템플릿 이미지 로드 및 크롭
-            temp_img_path = osp.join(self.im_dir, temp_img_file)
-            temp_img = Image.open(temp_img_path).convert("RGB")
-            temp_img = temp_img.crop(temp_bbox.tolist())  # 바운딩 박스 크롭
+              # 템플릿 이미지 로드 및 크롭
+              temp_img_path = osp.join(self.im_dir, temp_img_file)
+              temp_img = Image.open(temp_img_path).convert("RGB")
+              temp_img = temp_img.crop(temp_bbox.tolist())  # 바운딩 박스 크롭
+              # print('cropped')
 
             # 템플릿 데이터 전처리
             temp_input_dict = {'img': temp_img, 'box': temp_bbox, 'text': temp_phrase}
