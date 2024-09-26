@@ -315,6 +315,7 @@ def get_sha():
 #     return tuple(batch)
 
 def collate_fn(raw_batch):
+    # TODO : nested_tensor_from_tensor_list 함수를 사용하여 img와 template img 처리
     raw_batch = list(zip(*raw_batch))
     
     img = torch.stack(raw_batch[0])
