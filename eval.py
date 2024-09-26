@@ -109,6 +109,12 @@ def get_args_parser():
                         help='location of pre-parsed dataset info')
     parser.add_argument('--dataset', default='referit', type=str,
                         help='referit/flickr/unc/unc+/gref')
+    parser.add_argument('--category_file_path', default='data/coco_80.txt', type=str,
+                        help='path to category file')
+    parser.add_argument('--num_templates', default=5, type=int,
+                        help='number of templates')
+    parser.add_argument('--template_classes', default=3, type=int,
+                        help='number of classes in template')
     parser.add_argument('--max_query_len', default=20, type=int,
                         help='maximum time steps (lang length) per batch')
     
