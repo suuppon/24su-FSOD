@@ -27,6 +27,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 python -m torch.distributed.launch --nproc_per_node=8 --use_env eval.py --model_type ResNet --batch_size 16 --backbone resnet50 --bert_enc_num 12 --detr_enc_num 6 --dataset gref --max_query_len 40 --output_dir outputs/refcocog_gsplit_r50 --stages 3 --vl_fusion_enc_layers 3 --uniform_learnable True --in_points 36 --lr 1e-4 --different_transformer True --lr_drop 60 --vl_dec_layers 1 --vl_enc_layers 1 --eval_model outputs/refcocog_gsplit_r50/best_checkpoint.pth --eval_set val
 ```
 
+
 ## Inference 
 ```shell
 !python -m torch.distributed.launch --nproc_per_node=1 --use_env inference.py \
@@ -47,3 +48,16 @@ python -m torch.distributed.launch --nproc_per_node=8 --use_env eval.py --model_
   --eval_model ./checkpoints/best_checkpoint_5.pth \
   --eval_set val \
 ```
+
+
+## ODinW35 Dataset
+1. Download dataset
+```shell
+python download.py --dataset_path {YOUR_DIRECTORY}
+```
+
+2. Convert dataset to pth file
+```shell
+python convert_odwin_to_pth.py
+
+
