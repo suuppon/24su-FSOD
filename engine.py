@@ -53,8 +53,13 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
         # model forward
         output = model(img_data, text_data,tem_imgs, tem_txts, category, tem_cat)
 
-        loss_dict = loss_utils.trans_vg_loss(output, target)
-        losses = sum(loss_dict[k] for k in loss_dict.keys())
+        if args.contrastive_loss == 1:
+          loss_dict = loss_utils.trans_vg_contrast(output, target)
+          losses = sum(loss_dict[k] for k in loss_dict.keys())
+        else :
+          output = output[0]
+          loss_dict = loss_utils.trans_vg_loss(output, target)
+          losses = sum(loss_dict[k] for k in loss_dict.keys())
 
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
@@ -112,8 +117,14 @@ def validate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
 
         pred_boxes = model(img_data, text_data, tem_imgs, tem_txts, category,tem_cat)
 
-        loss_dict = loss_utils.trans_vg_loss(pred_boxes, target)
-        losses = sum(loss_dict[k] for k in loss_dict.keys())
+        if args.contrastive_loss == 1:
+          loss_dict = loss_utils.trans_vg_contrast(pred_boxes, target)
+          losses = sum(loss_dict[k] for k in loss_dict.keys())
+          pred_boxes = pred_boxes[0]
+        else :
+          pred_boxes = pred_boxes[0]
+          loss_dict = loss_utils.trans_vg_loss(pred_boxes, target)
+          losses = sum(loss_dict[k] for k in loss_dict.keys())
 
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
@@ -158,6 +169,15 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
 
         # Model prediction
         output = model(img_data, text_data, tem_imgs, tem_txts, category, tem_cat)
+        
+        if args.contrastive_loss == 1:
+          loss_dict = loss_utils.trans_vg_contrast(output, target)
+          losses = sum(loss_dict[k] for k in loss_dict.keys())
+          output = output[0]
+        else :
+          output = output[0]
+          loss_dict = loss_utils.trans_vg_loss(output, target)
+          losses = sum(loss_dict[k] for k in loss_dict.keys())
 
         # Save predictions and ground truth
         pred_box_list.append(output.cpu())
