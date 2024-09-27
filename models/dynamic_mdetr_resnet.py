@@ -76,17 +76,19 @@ class DynamicMDETR(nn.Module):
         if self.use_cross_attention:
             self.cross_attention = CrossAttentionModule(d_model=hidden_dim, n_heads=8)
 
-        # # vl_encoder 인코더의 모든 파라미터를 얼림.
-        # for param in self.vl_encoder.parameters():
-        #     param.requires_grad = False
-        # for param in self.visumodel.parameters():
-        #     param.requires_grad = False
-        # for param in self.textmodel.parameters():
-        #     param.requires_grad = False
-        # for param in self.visu_proj.parameters():
-        #     param.requires_grad = False
-        # for param in self.text_proj.parameters():
-        #     param.requires_grad = False
+
+        for param in self.vl_pos_embed.parameters():
+            param.requires_grad = True
+        for param in self.vl_encoder.parameters():
+            param.requires_grad = False
+        for param in self.visumodel.parameters():
+            param.requires_grad = False
+        for param in self.textmodel.parameters():
+            param.requires_grad = False
+        for param in self.visu_proj.parameters():
+            param.requires_grad = False
+        for param in self.text_proj.parameters():
+            param.requires_grad = False
 
         # Sampling relevant
         self.visual_feature_map_h = 20
