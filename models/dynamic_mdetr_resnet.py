@@ -202,12 +202,7 @@ class DynamicMDETR(nn.Module):
             text_mask = text_mask.flatten(1)  # (B, max_len)
             text_src = self.text_proj(text_src).permute(1, 0, 2)  # (max_len, B, channel)
             
-            # 1.1.3 Apply Cross-Attention
-            if int(self.use_cross_attention) == 1:
-                text_to_visual, visual_to_text = self.cross_attention(text_src, visu_src, text_mask, visu_mask)
-                vl_src = torch.cat([visual_to_text, text_to_visual], dim=0)
-            else:
-                vl_src = torch.cat([visu_src, text_src], dim=0)
+            vl_src = torch.cat([visu_src, text_src], dim=0)
 
             # 1.1.4 Concat visual features and language features
             vl_mask = torch.cat([visu_mask, text_mask], dim=1)
@@ -258,20 +253,32 @@ class DynamicMDETR(nn.Module):
 
             tem_pseudo_class_feats = []
 
+
+
             for i in range(B):
                 for j in range(num_templates):
-                # 2.3 Pseudo-class embedding for Template
+                    # 2.3 Pseudo-class embedding for Template
                     tem_category_idx = torch.tensor(self.category_to_idx[tem_cats[i][j]], device=img_data.tensors.device)
                     tem_pseudo_class_feat = self.pseudo_class_embedding(tem_category_idx).unsqueeze(0)  # (1, 256)
-                    
                     tem_pseudo_class_feats.append(tem_pseudo_class_feat)
 
             # Tensor를 cat으로 이어 붙임
             tem_pseudo_class_feat = torch.cat(tem_pseudo_class_feats, dim=0).unsqueeze(0)  # (1, num_templates, 256)
-                
-            # 템플릿 피처 결합 (Visual Feature, Language Feature, Pseudo-class Embedding)
+
+            # 2.4 Apply Cross-Attention for Template
+            if int(self.use_cross_attention) == 1:
+                template_text_to_visual, template_visual_to_text = self.cross_attention(tem_text_src, tem_visu_src, tem_text_mask, tem_visu_mask)
+                template_vl_src = torch.cat([template_visual_to_text, template_text_to_visual], dim=0)
+            else:
+                template_vl_src = torch.cat([tem_visu_src, tem_text_src], dim=0)
+
+            # 템플릿 피처 결합 (Cross-Attention 적용된 Visual Feature, Language Feature, Pseudo-class Embedding)
             # (N_v + N_l + 1, B * num_templates, hidden_dim)
-            combined_template_feat = torch.cat([tem_visu_src, tem_text_src, tem_pseudo_class_feat],  dim=0)
+            combined_template_feat = torch.cat([template_vl_src, tem_pseudo_class_feat], dim=0)
+
+            # (B * num_templates, hidden_dim)
+            combined_template_mask = torch.cat([tem_visu_mask, tem_text_mask, pseudo_class_mask], dim=1)
+            
             # (B * num_templates, hidden_dim)
             combined_template_mask = torch.cat([tem_visu_mask, tem_text_mask, pseudo_class_mask],dim=1)
             
