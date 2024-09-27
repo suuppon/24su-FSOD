@@ -51,13 +51,13 @@ python -m torch.distributed.launch --nproc_per_node=8 --use_env eval.py --model_
 
 
 ## ODinW35 Dataset
-1. Download dataset
+1. Download dataset (dataset_path Recommendation : data/odinw)
 ```shell
-python download.py --dataset_path {YOUR_DIRECTORY}
+python odinw/download.py --dataset_path {YOUR_DATA_DIRECTORY}
 ```
-
 2. Convert dataset to pth file
 ```shell
-python convert_odwin_to_pth.py
+python odinw/convert_odwin_to_pth.py
+```
 
 
