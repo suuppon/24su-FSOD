@@ -55,7 +55,6 @@ def get_args_parser():
                         help="Name of model to be exploited.")
     parser.add_argument('--model_type', type=str, default='ResNet', choices=('ResNet', 'CLIP'),
                         help="Name of model to be exploited.")
-
     # loss
     parser.add_argument('--contrastive_loss', default=0, type=int,
                         help='Determine whether contrastive loss for pseudo embedding.') # if 1, use loss
@@ -156,8 +155,6 @@ def get_args_parser():
 
     parser.add_argument('--pretrained_model', default='', type=str)
 
-    # cross-attention 할건지 말건지 args 추가 
-    parser.add_argument('--use_cross_attention', type=int, default=0, help='Use cross attention if 1, otherwise 0')
 
     return parser
 
@@ -284,11 +281,41 @@ def main(args):
         model = model_without_ddp
         print('Missing keys when loading detr model:')
         print(missing_keys)
+    '''
+        # vl_encoder 인코더의 모든 파라미터를 얼림.
+        for param in self.vl_encoder.parameters():
+            param.requires_grad = False
+        for param in self.visumodel.parameters():
+            param.requires_grad = False
+        for param in self.textmodel.parameters():
+            param.requires_grad = False
+        for param in self.visu_proj.parameters():
+            param.requires_grad = False
+        for param in self.text_proj.parameters():
+            param.requires_grad = False
+    
+    '''
 
     if args.pretrained_model:
       checkpoint = torch.load(args.pretrained_model, map_location='cpu')
-      missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'],strict=False)
-      model = model_without_ddp
+      missing_keys, unexpected_keys = [], []
+      try:
+          # strict=False로 가중치 로드 시도
+          missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
+      except RuntimeError as e:
+          # size mismatch 발생 시 예외 처리
+          print("RuntimeError:", e)
+          if 'vl_pos_embed.weight' in str(e):
+              print("Size mismatch detected for vl_pos_embed.weight. Initializing with new size.")
+              # vl_pos_embed.weight 초기화
+              model_without_ddp.vl_pos_embed = torch.nn.Embedding(args.max_query_len + 400, 256).to('cuda')
+              model_without_ddp.vl_pos_embed.weight.data.uniform_(-0.1, 0.1)  # 무작위 초기화
+
+      # 나머지 파라미터 학습 가능하게 설정
+      for name, param in model_without_ddp.named_parameters():
+          if name in missing_keys:
+              param.requires_grad = True
+
       print('Missing keys when loading dynamic-mdetr model:')
       print(missing_keys)
 
