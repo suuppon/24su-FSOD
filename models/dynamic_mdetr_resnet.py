@@ -77,8 +77,10 @@ class DynamicMDETR(nn.Module):
             self.cross_attention = CrossAttentionModule(d_model=hidden_dim, n_heads=8)
 
 
-        # for param in self.vl_encoder.parameters():
-        #     param.requires_grad = False
+        for param in self.vl_pos_embed.parameters():
+            param.requires_grad = True
+        for param in self.vl_encoder.parameters():
+            param.requires_grad = False
         for param in self.visumodel.parameters():
             param.requires_grad = False
         for param in self.textmodel.parameters():
