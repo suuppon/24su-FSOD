@@ -402,6 +402,23 @@ class NestedTensor(object):
     def __repr__(self):
         return str(self.tensors)
 
+def merge_nested_tensors(nested_tensor_list: List[NestedTensor]) -> NestedTensor:
+    # 각 NestedTensor의 tensors와 mask를 가져온다.
+    tensors = [nt.tensors for nt in nested_tensor_list]
+    masks = [nt.mask for nt in nested_tensor_list]
+
+    # tensors와 masks를 각각 torch.cat으로 연결한다.
+    combined_tensors = torch.cat(tensors, dim=0)
+    
+    if all(mask is not None for mask in masks):
+        # 모든 mask가 None이 아닌 경우에만 masks를 연결한다.
+        combined_masks = torch.cat(masks, dim=0)
+    else:
+        combined_masks = None
+    
+    # 통합된 NestedTensor를 반환한다.
+    return NestedTensor(combined_tensors, combined_masks)
+
 
 def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
     # TODO make this more general

@@ -11,7 +11,7 @@ from .language_model.bert import build_bert
 from .vl_transformer import build_vl_transformer
 from .vl_encoder import build_vl_encoder
 from utils.box_utils import xywh2xyxy
-from utils.misc import NestedTensor
+from utils.misc import NestedTensor, merge_nested_tensors
 import math
 
 
@@ -232,6 +232,8 @@ class DynamicMDETR(nn.Module):
             template_combined_masks = []  # 템플릿별 마스크 저장용 리스트
             
             # TODO : 반복문을 텐서로 결합
+            tem_imgs_tensors = merge_nested_tensors(tem_imgs)
+            tem_txts_tensors = merge_nested_tensors(tem_txts_tensors)
             for i in range(bs):
                 
                 # 2.1 Visual Encoder for Template
