@@ -11,7 +11,7 @@ from .language_model.bert import build_bert
 from .vl_transformer import build_vl_transformer
 from .vl_encoder import build_vl_encoder
 from utils.box_utils import xywh2xyxy
-from utils.misc import NestedTensor
+from utils.misc import NestedTensor, merge_nested_tensors
 import math
 
 
@@ -21,6 +21,39 @@ def load_category_mapping(file_path):
           categories = f.read().splitlines()
       category_to_idx = {category: idx for idx, category in enumerate(categories)}
       return category_to_idx, categories
+  
+def compute_contrastive_loss(batch_size, num_templates, vl_feat, template_combined_src):
+    target_feats = F.normalize(vl_feat, dim=-1)  # Use target features
+    template_feats = F.normalize(template_combined_src, dim=-1)  # Use template combined features
+
+    # print(target_feats.size()) #torch.Size([440, 8, 256])
+    target_feats = target_feats.mean(dim=0, keepdim=True).repeat_interleave(15, dim = 0) # (15,8,256)
+    # print(target_feats.permute(1, 0, 2).size()) #torch.Size([8, 15, 256])
+
+    # Compute similarity matrix
+    # target_feats.permute(1, 0, 2) : torch.Size([8, 15, 256])  / template_feats.permute(1, 2, 0) : torch.Size([8, 256, 15]) 
+    sim_matrix = torch.matmul(target_feats.permute(1, 0, 2), template_feats.permute(1, 2, 0))  # (bs, num_templates, num_templates)
+    '''
+    sim_matrix[i, j, k]
+    : i번째 배치에서 j번째 타겟 특징(임베딩)과 k번째 템플릿 특징(임베딩) 간의 유사도 값
+    '''
+    
+    # Positive and negative mask calculation
+    pos_mask = torch.zeros_like(sim_matrix, dtype=torch.bool)  # Initialize positive mask
+    neg_mask = torch.ones_like(sim_matrix, dtype=torch.bool)  # Initialize negative ma
+    for i in range(bs):
+        for k in range(num_templates):
+            for j in range(num_templates):
+                # Assuming `category` is the target category and `tem_cats` contain template categories
+                # If the category of the target matches the category of the template, it's a positive pair
+                if category[i] == tem_cats[i][j]:
+                    pos_mask[i, k, j] = 1  # Positive mask for matching categories
+                    neg_mask[i, k, j] = 0  # Exclude from negative ma
+    # Contrastive loss calculation
+    pos_loss = (pos_mask * F.logsigmoid(sim_matrix)).sum()
+    neg_loss = (neg_mask * F.logsigmoid(-sim_matrix)).sum()
+    contrastive_loss = -(pos_loss + neg_loss) / (pos_mask.sum() + neg_mask.sum() + 1e-8)  # Avoid division by zero
+
 
 class CrossAttentionModule(nn.Module):
     def __init__(self, d_model, n_heads):
@@ -65,7 +98,7 @@ class DynamicMDETR(nn.Module):
         self.vl_encoder = build_vl_encoder(args)
        
 
-        self.vl_pos_embed_template =  nn.Embedding(num_total*5, hidden_dim) 
+        self.vl_pos_embed_template = nn.Embedding(num_total*5, hidden_dim) 
 
         self.visu_proj = nn.Linear(self.visumodel.num_channels, hidden_dim)
         self.text_proj = nn.Linear(self.textmodel.num_channels, hidden_dim)
@@ -147,39 +180,8 @@ class DynamicMDETR(nn.Module):
 
         return sampled_features, pe
 
-    def contrastive_loss(target_feats, template_feats, pos_mask, neg_mask):
-      """
-      Calculates contrastive loss between target features and template features.
-
-      Args:
-          target_feats (Tensor): Target feature vectors of shape (batch_size, 1, hidden_dim).
-          template_feats (Tensor): Template feature vectors of shape (batch_size, num_templates, hidden_dim).
-          pos_mask (Tensor): Mask indicating positive pairs (1 for positive, 0 otherwise).
-          neg_mask (Tensor): Mask indicating negative pairs (1 for negative, 0 otherwise).
-
-      Returns:
-          loss (Tensor): Calculated contrastive loss.
-      """
-      # Normalize the input feature vectors along the last dimension
-      target_feats = F.normalize(target_feats, dim=-1)
-      template_feats = F.normalize(template_feats, dim=-1)
-      
-      # Compute similarity matrix (batch_size, 1, num_templates)
-      sim_matrix = torch.matmul(target_feats, template_feats.transpose(1, 2))
-      
-      # Compute the positive loss component (masked by pos_mask)
-      pos_loss = (pos_mask * F.logsigmoid(sim_matrix)).sum()
-      
-      # Compute the negative loss component (masked by neg_mask)
-      neg_loss = (neg_mask * F.logsigmoid(-sim_matrix)).sum()
-      
-      # Calculate total contrastive loss
-      contrastive_loss = -(pos_loss + neg_loss) / (pos_mask.sum() + neg_mask.sum() + 1e-8)  # Avoid division by zero
-      
-      return contrastive_loss
-
     def forward(self, img_data, text_data, tem_imgs, tem_txts, category, tem_cats):
-            bs = img_data.tensors.shape[0]
+            B, num_templates = img_data.tensors.shape[0], tem_imgs[0].tensors.shape[0]
 
             # 1. Feature Encoder - Target
 
@@ -207,7 +209,7 @@ class DynamicMDETR(nn.Module):
 
             # 1.4 Concat visual features and language features
             vl_mask = torch.cat([visu_mask, text_mask], dim=1)
-            vl_pos = self.vl_pos_embed.weight.unsqueeze(1).repeat(1, bs, 1)
+            vl_pos = self.vl_pos_embed.weight.unsqueeze(1).repeat(1, B, 1)
 
             # print(vl_src.size()) torch.Size([440, 8, 256])
             # print(vl_pos.size()) torch.Size([440, 8, 256])
@@ -234,117 +236,88 @@ class DynamicMDETR(nn.Module):
             template_combined_masks = []  # 템플릿별 마스크 저장용 리스트
             
             # TODO : 반복문을 텐서로 결합
-            for i in range(bs):
-                
-                # 2.1 Visual Encoder for Template
-                tem_out, tem_visu_pos = self.visumodel(tem_imgs[i])
-                # (Num_templates, N_v), (N_v, Num_templates, hidden_dim)
-                tem_visu_mask, tem_visu_src = tem_out 
-                # (N_v, Num_templates, hidden_dim)
-                tem_visu_src = self.visu_proj(tem_visu_src)
-                # (N_v, Num_templates, hidden_dim)
+            # (B * Num_templates, C, H, W)
+            tem_imgs_tensors = merge_nested_tensors(tem_imgs)
+            # (B * Num_templates, L)
+            tem_txts_tensors = merge_nested_tensors(tem_txts)
+            
+            # 2.1 Visual Encoder for Template
+            tem_out, tem_visu_pos = self.visumodel(tem_imgs_tensors)
+            # (B * Num_templates, N_v), (N_v, B * Num_templates, hidden_dim)
+            tem_visu_mask, tem_visu_src = tem_out 
+            # (N_v, B * Num_templates, hidden_dim)
+            tem_visu_src = self.visu_proj(tem_visu_src)
+            # (N_v, B * Num_templates, hidden_dim)
 
-                # 2.2 Language Encoder for Template
-                tem_text_fea = self.textmodel(tem_txts[i])
-                # (Num_templates, N_l, hidden_dim), (Num_templates, N_l)
-                tem_text_src, tem_text_mask = tem_text_fea.decompose() 
-                # (Num_templates, N_l)
-                tem_text_mask = tem_text_mask.flatten(1) 
-                # (N_l, Num_templates, hidden_dim)
-                tem_text_src = self.text_proj(tem_text_src).permute(1, 0, 2)  
-                # (N_l, 1, hidden_dimm) 
-                # 마스크 생성
-                num_templates = tem_visu_src.shape[1]
-                pseudo_class_mask = torch.zeros((num_templates, 1), device=tem_visu_mask.device)  # (1, 1)
+            # 2.2 Language Encoder for Template
+            tem_text_fea = self.textmodel(tem_txts_tensors)
+            # (B * Num_templates, N_l, hidden_dim), (B * Num_templates, N_l)
+            tem_text_src, tem_text_mask = tem_text_fea.decompose() 
+            # (B * Num_templates, N_l)
+            tem_text_mask = tem_text_mask.flatten(1) 
+            # (N_l, B * Num_templates, hidden_dim)
+            tem_text_src = self.text_proj(tem_text_src).permute(1, 0, 2)  
+            # (N_l, 1, hidden_dimm) 
+            # 마스크 생성
+            batch_times_num_templates = tem_visu_src.shape[1]
+            pseudo_class_mask = torch.zeros((batch_times_num_templates, 1), device=tem_visu_mask.device)  # (1, 1)
 
-                tem_pseudo_class_feats = []
+            tem_pseudo_class_feats = []
 
-                for j in range(tem_imgs[i].tensors.shape[0]):
-                    # 2.3 Pseudo-class embedding for Template
+            for i in range(B):
+                for j in range(num_templates):
+                # 2.3 Pseudo-class embedding for Template
                     tem_category_idx = torch.tensor(self.category_to_idx[tem_cats[i][j]], device=img_data.tensors.device)
                     tem_pseudo_class_feat = self.pseudo_class_embedding(tem_category_idx).unsqueeze(0)  # (1, 256)
                     
                     tem_pseudo_class_feats.append(tem_pseudo_class_feat)
 
-                # Tensor를 cat으로 이어 붙임
-                tem_pseudo_class_feat = torch.cat(tem_pseudo_class_feats, dim=0).unsqueeze(0)  # (1, num_templates, 256)
-                    
-                # 템플릿 피처 결합 (Visual Feature, Language Feature, Pseudo-class Embedding)
-                # (N_v + N_l + 1, num_templates, hidden_dim)
-                combined_template_feat = torch.cat([tem_visu_src, tem_text_src, tem_pseudo_class_feat],  dim=0)
-                # (num_templates, hidden_dim)
-                combined_template_mask = torch.cat([tem_visu_mask, tem_text_mask, pseudo_class_mask],dim=1)
+            # Tensor를 cat으로 이어 붙임
+            tem_pseudo_class_feat = torch.cat(tem_pseudo_class_feats, dim=0).unsqueeze(0)  # (1, num_templates, 256)
                 
-                # Average pooling을 사용하여 템플릿 피처를 하나의 피처로 통합
-                # (1, num_templates, hidden_dim)
-                template_combined_feat = combined_template_feat.mean(dim=0, keepdim=True) 
-                # (num_templates, 1)
-                template_combined_mask = (combined_template_mask == 1).any(dim=1, keepdim=True).float()  
-
-                # 최종 피처 리스트에 추가
-                template_combined_feats.append(template_combined_feat)
-                template_combined_masks.append(template_combined_mask)
+            # 템플릿 피처 결합 (Visual Feature, Language Feature, Pseudo-class Embedding)
+            # (N_v + N_l + 1, B * num_templates, hidden_dim)
+            combined_template_feat = torch.cat([tem_visu_src, tem_text_src, tem_pseudo_class_feat],  dim=0)
+            # (B * num_templates, hidden_dim)
+            combined_template_mask = torch.cat([tem_visu_mask, tem_text_mask, pseudo_class_mask],dim=1)
+            
+            # Average pooling을 사용하여 템플릿 피처를 하나의 피처로 통합
+            # (1, B * num_templates, hidden_dim)
+            template_combined_feat = combined_template_feat.mean(dim=0, keepdim=True) 
+            # (B * num_templates, 1)
+            template_combined_mask = (combined_template_mask == 1).any(dim=1, keepdim=True).float()  
 
             # 모든 배치에 대해 병합
-            # (B, num_templates, hidden_dim)
-            template_combined_src = torch.cat(template_combined_feats, dim=0)  
-            # (num_templates, hidden_dim)
-            template_combined_mask = torch.cat(template_combined_masks, dim=1) 
+            # (1, B * num_templates, hidden_dim) -> (B, num_templates, hidden_dim)
+            template_combined_src = template_combined_feat.view(B, num_templates, -1)
+            # (num_templates, B)
+            template_combined_mask = template_combined_mask.view(num_templates, B)
 
             # (num_templates, B, hidden_dim)
             template_combined_src = template_combined_src.permute(1, 0, 2) 
-            # (hidden_dim, num_templates)
+            # (B, num_templates)
             template_combined_mask = template_combined_mask.permute(1, 0)
             
             ### 4. Contrastive Loss Calculation
             contrastive_loss = 0
             # Normalize features
             if self.contrastive_loss == 1 :
-              target_feats = F.normalize(vl_feat, dim=-1)  # Use target features
-              template_feats = F.normalize(template_combined_src, dim=-1)  # Use template combined features
-
-              # print(target_feats.size()) #torch.Size([440, 8, 256])
-              target_feats = target_feats.mean(dim=0, keepdim=True).repeat_interleave(15, dim = 0) # (15,8,256)
-              # print(target_feats.permute(1, 0, 2).size()) #torch.Size([8, 15, 256])
-
-              # Compute similarity matrix
-              # target_feats.permute(1, 0, 2) : torch.Size([8, 15, 256])  / template_feats.permute(1, 2, 0) : torch.Size([8, 256, 15]) 
-              sim_matrix = torch.matmul(target_feats.permute(1, 0, 2), template_feats.permute(1, 2, 0))  # (bs, num_templates, num_templates)
-              # print(sim_matrix.size()) 
-              '''
-              sim_matrix[i, j, k]
-              : i번째 배치에서 j번째 타겟 특징(임베딩)과 k번째 템플릿 특징(임베딩) 간의 유사도 값
-              '''
-
-              # Positive and negative mask calculation
-              pos_mask = torch.zeros_like(sim_matrix, dtype=torch.bool)  # Initialize positive mask
-              neg_mask = torch.ones_like(sim_matrix, dtype=torch.bool)  # Initialize negative mask
-
-              for i in range(bs):
-                  for k in range(num_templates):
-                      for j in range(num_templates):
-                          # Assuming `category` is the target category and `tem_cats` contain template categories
-                          # If the category of the target matches the category of the template, it's a positive pair
-                          if category[i] == tem_cats[i][j]:
-                              pos_mask[i, k, j] = 1  # Positive mask for matching categories
-                              neg_mask[i, k, j] = 0  # Exclude from negative mask
-
-              # Contrastive loss calculation
-              pos_loss = (pos_mask * F.logsigmoid(sim_matrix)).sum()
-              neg_loss = (neg_mask * F.logsigmoid(-sim_matrix)).sum()
-              contrastive_loss = -(pos_loss + neg_loss) / (pos_mask.sum() + neg_mask.sum() + 1e-8)  # Avoid division by zero
+                contrastive_loss = compute_contrastive_loss(batch_size=B,
+                                         num_templates=num_templates,
+                                         vl_feat=vl_feat,
+                                         template_combined_src=template_combined_src)
 
             
             ### 5. Dynamic Multimodal Transformer Decoder
-            sampling_query = self.init_sampling_feature.weight.repeat(bs, 1)
-            reference_point = self.init_reference_point.weight.repeat(bs, 1)
+            sampling_query = self.init_sampling_feature.weight.repeat(B, 1)
+            reference_point = self.init_reference_point.weight.repeat(B, 1)
 
             # language query와 multimodal prompt결합하여 새로운 query 생성 
             # (N_l + num_templates, B, hidden_dim)
             new_query = torch.cat([language_feat, template_combined_src], dim=0)
 
             # (B, new_query.shape[0], hidden_dim)
-            positional_embedding = self.vl_pos_embed_template.weight[:new_query.shape[0]].unsqueeze(1).repeat(1, bs, 1)
+            positional_embedding = self.vl_pos_embed_template.weight[:new_query.shape[0]].unsqueeze(1).repeat(1, B, 1)
             
             for i in range(self.stages):
                 # 2d adaptive pooling
@@ -399,7 +372,7 @@ class DynamicMDETR(nn.Module):
             return pred_box, contrastive_loss
 
         
-      # bs = img_data.tensors.shape[0]
+      # B = img_data.tensors.shape[0]
 
       # # Category를 숫자로 변환
       # category_idx = torch.tensor([self.category_to_idx[cat] for cat in category], device=img_data.tensors.device)
