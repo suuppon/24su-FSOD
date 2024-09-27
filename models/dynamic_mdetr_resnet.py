@@ -22,7 +22,7 @@ def load_category_mapping(file_path):
       category_to_idx = {category: idx for idx, category in enumerate(categories)}
       return category_to_idx, categories
   
-def compute_contrastive_loss(batch_size, num_templates, vl_feat, template_combined_src):
+def compute_contrastive_loss(batch_size, num_templates, category, tem_cats, vl_feat, template_combined_src):
     target_feats = F.normalize(vl_feat, dim=-1)  # Use target features
     template_feats = F.normalize(template_combined_src, dim=-1)  # Use template combined features
 
@@ -41,7 +41,7 @@ def compute_contrastive_loss(batch_size, num_templates, vl_feat, template_combin
     # Positive and negative mask calculation
     pos_mask = torch.zeros_like(sim_matrix, dtype=torch.bool)  # Initialize positive mask
     neg_mask = torch.ones_like(sim_matrix, dtype=torch.bool)  # Initialize negative ma
-    for i in range(bs):
+    for i in range(batch_size):
         for k in range(num_templates):
             for j in range(num_templates):
                 # Assuming `category` is the target category and `tem_cats` contain template categories
@@ -183,15 +183,17 @@ class DynamicMDETR(nn.Module):
     def forward(self, img_data, text_data, tem_imgs, tem_txts, category, tem_cats):
             B, num_templates = img_data.tensors.shape[0], tem_imgs[0].tensors.shape[0]
 
-            # 1. Feature Encoder - Target
+            # 1. Target
 
-            # 1.1 Visual Encoder
+            # 1.1 Encoding
+            
+            # 1.1.1 Visual Encoder
             # visual backbone
             out, visu_pos = self.visumodel(img_data)
             visu_mask, visu_src = out # (B, H*W), (N_v, B, channel)
             visu_src = self.visu_proj(visu_src)  # (N_v, B, channel)
 
-            # 1.2 Language Encoder
+            # 1.1.2 Language Encoder
             # language bert
             text_fea = self.textmodel(text_data)
             text_src, text_mask = text_fea.decompose() # (B, N_l, hidden_dim), (B, N_l)
@@ -200,30 +202,25 @@ class DynamicMDETR(nn.Module):
             text_mask = text_mask.flatten(1)  # (B, max_len)
             text_src = self.text_proj(text_src).permute(1, 0, 2)  # (max_len, B, channel)
             
-            # 1.3 Apply Cross-Attention
+            # 1.1.3 Apply Cross-Attention
             if int(self.use_cross_attention) == 1:
                 text_to_visual, visual_to_text = self.cross_attention(text_src, visu_src, text_mask, visu_mask)
                 vl_src = torch.cat([visual_to_text, text_to_visual], dim=0)
             else:
                 vl_src = torch.cat([visu_src, text_src], dim=0)
 
-            # 1.4 Concat visual features and language features
+            # 1.1.4 Concat visual features and language features
             vl_mask = torch.cat([visu_mask, text_mask], dim=1)
             vl_pos = self.vl_pos_embed.weight.unsqueeze(1).repeat(1, B, 1)
 
-            # print(vl_src.size()) torch.Size([440, 8, 256])
-            # print(vl_pos.size()) torch.Size([440, 8, 256])
-            # print(vl_mask.size()) torch.Size([8, 440])
-            # print(text_mask.size()) torch.Size([8, 40])
-
-            # 2. Multimodal Transformer
-            # 2.1 Multimodal Transformer Encoder
+            # 1.2. Multimodal Transformer
+            # 1.2.1 Multimodal Transformer Encoder
             if self.vl_encoder is not None:
                 vl_feat = self.vl_encoder(vl_src, vl_mask, vl_pos)  # (L+N)xBxC
             else:
                 vl_feat = vl_src
 
-            # 2.2 Split back to visual features and language features, use language features as queries
+            # 1.2.2 Split back to visual features and language features, use language features as queries
             visu_feat = vl_feat[:self.num_visu_token] # (H*W, B, channel)
             language_feat = vl_feat[self.num_visu_token:] # (max_len, B, channel)
             v_pos = vl_pos[:self.num_visu_token]
@@ -232,10 +229,7 @@ class DynamicMDETR(nn.Module):
 
             # 2. Template Data 처리 (Target과 동일한 방식)
             ## 템플릿 피처 결합 및 평균 풀링
-            template_combined_feats = []  # 템플릿별로 결합된 피처 저장용 리스트
-            template_combined_masks = []  # 템플릿별 마스크 저장용 리스트
             
-            # TODO : 반복문을 텐서로 결합
             # (B * Num_templates, C, H, W)
             tem_imgs_tensors = merge_nested_tensors(tem_imgs)
             # (B * Num_templates, L)
@@ -298,9 +292,8 @@ class DynamicMDETR(nn.Module):
             # (B, num_templates)
             template_combined_mask = template_combined_mask.permute(1, 0)
             
-            ### 4. Contrastive Loss Calculation
+            ### 3. Contrastive Loss Calculation
             contrastive_loss = 0
-            # Normalize features
             if self.contrastive_loss == 1 :
                 contrastive_loss = compute_contrastive_loss(batch_size=B,
                                          num_templates=num_templates,
@@ -308,7 +301,7 @@ class DynamicMDETR(nn.Module):
                                          template_combined_src=template_combined_src)
 
             
-            ### 5. Dynamic Multimodal Transformer Decoder
+            ### 4. Dynamic Multimodal Transformer Decoder
             sampling_query = self.init_sampling_feature.weight.repeat(B, 1)
             reference_point = self.init_reference_point.weight.repeat(B, 1)
 
@@ -325,12 +318,6 @@ class DynamicMDETR(nn.Module):
 
                 ## Text guided decoding with one-layer transformer encoder-decoder
                 ## language_feat와 template_combined_src를 결합하여 사용
-
-                # print(language_feat.size()) # torch.Size([40, 8, 256])
-                # print(torch.cat([text_mask, template_combined_mask], dim=1).size())  # torch.Size([8, 481])
-                # print(sampled_features.size()) # torch.Size([8, 256, 36])
-                # print(pe.size()) # torch.Size([8, 256, 36])
-
 
                 if self.different_transformer:
                     '''
