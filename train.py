@@ -4,7 +4,7 @@ import json
 import random
 import time
 import math
-
+import os
 import numpy as np
 from pathlib import Path
 
@@ -133,6 +133,9 @@ def get_args_parser():
     # dataset parameters
     parser.add_argument('--output_dir', default='./outputs',
                         help='path where to save, empty for no saving')
+    # output_dir에 시간을 붙여서 저장
+    parser.output_dir = os.path.join(args.output_dir, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=13, type=int)
