@@ -145,7 +145,10 @@ def get_args_parser():
     parser.add_argument('--uniform_learnable', default=False, type=bool)
     parser.add_argument('--different_transformer', default=False, type=bool)
     parser.add_argument('--vl_fusion_enc_layers', default=3, type=int)
-
+    
+    parser.add_argument('--use_cross_attention', type=int, default=0, help='Use cross attention if 1, otherwise 0')
+    parser.add_argument('--contrastive_loss', default=0, type=int,
+                        help='Determine whether contrastive loss for pseudo embedding.') # if 1, use loss
     return parser
 
 
