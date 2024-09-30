@@ -58,6 +58,8 @@ def get_args_parser():
     # loss
     parser.add_argument('--contrastive_loss', default=0, type=int,
                         help='Determine whether contrastive loss for pseudo embedding.') # if 1, use loss
+    parser.add_argument('--weight_contrast', default=0.2, type=float,
+                        help='Determine weight for contrastive loss.')  
     
     # DETR parameters
     # * Backbone

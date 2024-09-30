@@ -109,7 +109,7 @@ def yolo_loss(pred_list, target, gi, gj, best_n_list, device, w_coord=5., w_neg=
     return (loss_x + loss_y + loss_w + loss_h) * w_coord + loss_conf
 
 
-def trans_vg_contrast(batch_pred, batch_target):
+def trans_vg_contrast(batch_pred, batch_target,weight_contrast):
     """Compute the losses related to the bounding boxes, 
        including the L1 regression loss and the GIoU loss
     """
@@ -128,7 +128,7 @@ def trans_vg_contrast(batch_pred, batch_target):
     losses = {}
     losses['loss_bbox'] = loss_bbox.sum() / num_boxes
     losses['loss_giou'] = loss_giou.sum() / num_boxes
-    losses['loss_contrastive'] = batch_contrast.sum()
+    losses['loss_contrastive'] = weight_contrast*(batch_contrast.sum())
 
     return losses
 
