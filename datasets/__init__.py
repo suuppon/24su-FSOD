@@ -4,7 +4,7 @@ import torchvision
 from torchvision.transforms import Compose, ToTensor, Normalize
 
 import datasets.transforms as T
-from .data_loader import GroundingDataset, GroundingDatasetCLIP
+from .data_loader import GroundingDataset, GroundingDatasetCLIP, GroundingDatasetforInference
 
 
 def make_transforms(args, image_set, is_onestage=False):
@@ -76,3 +76,10 @@ def build_dataset(split, args):
                                 transform=make_transforms(args, split),
                                 max_query_len=args.max_query_len)
 
+def build_inference_dataset(args):
+    return GroundingDatasetforInference(data_root=args.data_root,
+                            split_root=args.split_root,
+                            dataset=args.dataset,
+                            split='test',
+                            transform=make_transforms(args, 'test'),
+                            max_query_len=args.max_query_len)

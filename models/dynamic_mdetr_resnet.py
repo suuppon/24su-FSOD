@@ -307,10 +307,13 @@ class DynamicMDETR(nn.Module):
             if self.contrastive_loss == 1 :
                 contrastive_loss = compute_contrastive_loss(batch_size=B,
                                          num_templates=num_templates,
+                                         category=category,
+                                         tem_cats=tem_cats,
                                          category = category,
                                          tem_cats= tem_cats,
                                          vl_feat=vl_feat,
-                                         template_combined_src=template_combined_src)
+                                         template_combined_src=template_combined_src,
+                                         )
 
             
             ### 4. Dynamic Multimodal Transformer Decoder
