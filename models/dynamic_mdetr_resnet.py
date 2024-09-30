@@ -27,7 +27,7 @@ def compute_contrastive_loss(batch_size, num_templates, category, tem_cats, vl_f
     template_feats = F.normalize(template_combined_src, dim=-1)  # Use template combined features
 
     # print(target_feats.size()) #torch.Size([440, 8, 256])
-    target_feats = target_feats.mean(dim=0, keepdim=True).repeat_interleave(15, dim = 0) # (15,8,256)
+    target_feats = target_feats.mean(dim=0, keepdim=True).repeat_interleave(num_templates, dim = 0) # (15,8,256)
     # print(target_feats.permute(1, 0, 2).size()) #torch.Size([8, 15, 256])
 
     # Compute similarity matrix
@@ -42,13 +42,16 @@ def compute_contrastive_loss(batch_size, num_templates, category, tem_cats, vl_f
     pos_mask = torch.zeros_like(sim_matrix, dtype=torch.bool)  # Initialize positive mask
     neg_mask = torch.ones_like(sim_matrix, dtype=torch.bool)  # Initialize negative ma
     for i in range(batch_size):
-        for k in range(num_templates):
-            for j in range(num_templates):
-                # Assuming `category` is the target category and `tem_cats` contain template categories
-                # If the category of the target matches the category of the template, it's a positive pair
+        for k in range(num_templates):  # 각 타겟의 k번째 템플릿에 대해
+            for j in range(num_templates):  # 각 타겟의 j번째 템플릿과 비교
+                # target의 카테고리와 템플릿의 카테고리 비교
                 if category[i] == tem_cats[i][j]:
-                    pos_mask[i, k, j] = 1  # Positive mask for matching categories
-                    neg_mask[i, k, j] = 0  # Exclude from negative ma
+                    pos_mask[i, k, j] = 1  # 동일한 카테고리일 경우 positive mask 설정
+                    neg_mask[i, k, j] = 0  # negative mask에서는 제외
+                else:
+                    pos_mask[i, k, j] = 0  # 카테고리가 다를 경우 positive mask에서는 제외
+                    neg_mask[i, k, j] = 1  # negative mask에 포함
+
     # Contrastive loss calculation
     pos_loss = (pos_mask * F.logsigmoid(sim_matrix)).sum()
     neg_loss = (neg_mask * F.logsigmoid(-sim_matrix)).sum()
@@ -304,6 +307,8 @@ class DynamicMDETR(nn.Module):
             if self.contrastive_loss == 1 :
                 contrastive_loss = compute_contrastive_loss(batch_size=B,
                                          num_templates=num_templates,
+                                         category = category,
+                                         tem_cats= tem_cats,
                                          vl_feat=vl_feat,
                                          template_combined_src=template_combined_src)
 
