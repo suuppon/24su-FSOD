@@ -33,6 +33,7 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
+    weight_contrast = args.weight_contrast
 
     iter = epoch * len(data_loader)
     for batch in metric_logger.log_every(data_loader, print_freq, header):
@@ -56,7 +57,7 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
             print("Error: Model returned None.")
 
         if args.contrastive_loss == 1:
-          loss_dict = loss_utils.trans_vg_contrast(output, target)
+          loss_dict = loss_utils.trans_vg_contrast(output, target, weight_contrast)
           losses = sum(loss_dict[k] for k in loss_dict.keys())
         else :
           output = output[0]
@@ -94,6 +95,7 @@ def train_one_epoch(args, model: torch.nn.Module, data_loader: Iterable,
 @torch.no_grad()
 def validate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.device):
     model.eval()
+    weight_contrast = args.weight_contrast
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Eval:'
@@ -120,7 +122,7 @@ def validate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
         pred_boxes = model(img_data, text_data, tem_imgs, tem_txts, category,tem_cat)
 
         if args.contrastive_loss == 1:
-          loss_dict = loss_utils.trans_vg_contrast(pred_boxes, target)
+          loss_dict = loss_utils.trans_vg_contrast(pred_boxes, target,weight_contrast)
           losses = sum(loss_dict[k] for k in loss_dict.keys())
           pred_boxes = pred_boxes[0]
         else :
@@ -153,7 +155,7 @@ tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 @torch.no_grad()
 def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.device):
     model.eval()
-
+    weight_contrast = args.weight_contrast
     pred_box_list = []
     gt_box_list = []
 
@@ -173,7 +175,7 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
         output = model(img_data, text_data, tem_imgs, tem_txts, category, tem_cat)
         
         if args.contrastive_loss == 1:
-          loss_dict = loss_utils.trans_vg_contrast(output, target)
+          loss_dict = loss_utils.trans_vg_contrast(output, target,weight_contrast)
           losses = sum(loss_dict[k] for k in loss_dict.keys())
           output = output[0]
         else :
