@@ -122,72 +122,8 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
                 input_type_ids=input_type_ids))
     return features
 
-# Template load function
-def load_templates(images, current_category, template_classes=3, num_templates=2):
-    """
-    주어진 이미지 데이터에서 템플릿을 불러오는 함수.
-    
-    :param images: 전체 데이터셋 (self.images)
-    :param current_category: 현재 이미지의 카테고리
-    :param template_classes: 랜덤으로 선택할 카테고리 수 (기본값: 3)
-    :param num_templates: 각 카테고리에서 선택할 템플릿 수 (기본값: 2)
-    :return: 템플릿 리스트
-    """
-    
-    # 카테고리별로 템플릿을 저장할 리스트
-    templates = []
-    
-    # 1. 현재 이미지와 같은 카테고리의 이미지들을 num_templates만큼 불러오기
-    same_category_entries = [entry for entry in images if entry[5] == current_category]
-    selected_same_category = random.sample(same_category_entries, min(num_templates, len(same_category_entries)))
-    
-    # 같은 카테고리에서 선택된 템플릿들을 추가
-    for entry in selected_same_category:
-        # TODO : 나중에 마지막 underscore 삭제
-        other_filename, _, other_bbox, other_sentence, _, other_category, _ = entry
-
-        templates.append(
-            (
-                other_filename,
-                '',  # 공란
-                other_bbox,
-                other_sentence,
-                [("r1", ["none"]), ("r2", ["none"]), ("r3", ["none"]), ("r4", ["none"]), ("r5", ["none"]),
-                 ("r6", ["none"]), ("r7", ["none"]), ("r8", [other_category])],
-                other_category
-            )
-        )
-    
-    # 2. 현재 이미지와 다른 카테고리에서 template_classes - 1개의 카테고리 선택
-    all_categories = list(set(entry[5] for entry in images))  # 전체 카테고리 목록
-    all_categories.remove(current_category)  # 현재 카테고리는 제외
-    selected_other_categories = random.sample(all_categories, min(template_classes - 1, len(all_categories)))
-    
-    # 3. 선택된 각 다른 카테고리에서 num_templates만큼 템플릿을 불러오기
-    for other_category in selected_other_categories:
-        other_category_entries = [entry for entry in images if entry[5] == other_category]
-        selected_other_category = random.sample(other_category_entries, min(num_templates, len(other_category_entries)))
-        
-        for entry in selected_other_category:
-            other_filename, _, other_bbox, other_sentence, _, other_category, _ = entry
-
-            templates.append(
-                (
-                    other_filename,
-                    '',  # 공란
-                    other_bbox,
-                    other_sentence,
-                    [("r1", ["none"]), ("r2", ["none"]), ("r3", ["none"]), ("r4", ["none"]), ("r5", ["none"]),
-                     ("r6", ["none"]), ("r7", ["none"]), ("r8", [other_category])],
-                    other_category
-                )
-            )
-    
-    return templates
-
 class DatasetNotFoundError(Exception):
     pass
-
 class GroundingDataset(data.Dataset):
     SUPPORTED_DATASETS = {
         'referit': {'splits': ('train', 'val', 'trainval', 'test')},
@@ -212,7 +148,7 @@ class GroundingDataset(data.Dataset):
     }
 
     def __init__(self, data_root, split_root='data', dataset='referit', 
-                 transform=None, cropped_templates =1 ,return_idx=False, testmode=False,
+                 transform=None, cropped_templates=1, return_idx=False, testmode=False,
                  split='train', max_query_len=128, lstm=False, 
                  bert_model='bert-base-uncased',
                  num_templates:int=2, template_classes:int=3):
@@ -226,11 +162,10 @@ class GroundingDataset(data.Dataset):
         self.testmode = testmode
         self.split = split
         self.tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=True)
-        self.return_idx=return_idx
+        self.return_idx = return_idx
         
         self.num_templates = num_templates
         self.template_classes = template_classes
-
         self.cropped_templates = cropped_templates
 
         assert self.transform is not None
@@ -244,123 +179,107 @@ class GroundingDataset(data.Dataset):
             self.dataset_root = osp.join(self.data_root, 'referit')
             self.im_dir = osp.join(self.dataset_root, 'images')
             self.split_dir = osp.join(self.dataset_root, 'splits')
-        elif  self.dataset == 'flickr':
+        elif self.dataset == 'flickr':
             self.dataset_root = osp.join(self.data_root, 'Flickr30k')
             self.im_dir = osp.join(self.dataset_root, 'flickr30k-images')
-        else:   ## refcoco, etc.
+        else:  # refcoco, etc.
             self.dataset_root = osp.join(self.data_root, 'other')
-            self.im_dir = osp.join(
-                self.dataset_root, 'images', 'mscoco', 'images', 'train2014')
+            self.im_dir = osp.join(self.dataset_root, 'images', 'mscoco', 'images', 'train2014')
             self.split_dir = osp.join(self.dataset_root, 'splits')
 
         if not self.exists_dataset():
-            # self.process_dataset()
             print('Please download index cache to data folder: \n \
                 https://drive.google.com/open?id=1cZI562MABLtAzM6YU4WmKPFFguuVr0lZ')
             exit(0)
 
         dataset_path = osp.join(self.split_root, self.dataset)
-        valid_splits = self.SUPPORTED_DATASETS[self.dataset]['splits']
 
         if self.lstm:
             self.corpus = Corpus()
             corpus_path = osp.join(dataset_path, 'corpus.pth')
             self.corpus = torch.load(corpus_path)
 
-        if split not in valid_splits:
-            raise ValueError(
-                'Dataset {0} does not have split {1}'.format(
-                    self.dataset, split))
-
         splits = [split]
         if self.dataset != 'referit':
             splits = ['train', 'val'] if split == 'trainval' else [split]
         for split in splits:
-            imgset_file = '{0}_{1}.pth'.format('refcocogd', split)
+            imgset_file = '{0}_{1}.pth'.format(self.dataset, split)
             imgset_path = osp.join(dataset_path, imgset_file)
             self.images += torch.load(imgset_path)
-        # 템플릿 구성
-        # self.images = create_templates_based_on_same_image(self.images)
+
+        # Precompute all categories from the dataset once
+        self.all_categories = list(set(entry[5] for entry in self.images))  # Precompute categories
 
     def exists_dataset(self):
         return osp.exists(osp.join(self.split_root, self.dataset))
+
+    def load_templates(self, images, current_category, template_classes=3, num_templates=2):
+        templates = []
+        same_category_entries = [entry for entry in images if entry[5] == current_category]
+        selected_same_category = random.sample(same_category_entries, min(num_templates, len(same_category_entries)))
+
+        for entry in selected_same_category:
+            other_filename, _, other_bbox, other_sentence, _, other_category = entry
+            templates.append(
+                (other_filename, '', other_bbox, other_sentence, 
+                 [("r1", ["none"]), ("r2", ["none"]), ("r3", ["none"]), ("r4", ["none"]),
+                  ("r5", ["none"]), ("r6", ["none"]), ("r7", ["none"]), ("r8", [other_category])], 
+                 other_category))
+
+        available_categories = self.all_categories.copy()
+        available_categories.remove(current_category)
+        selected_other_categories = random.sample(available_categories, min(template_classes - 1, len(available_categories)))
+
+        for other_category in selected_other_categories:
+            other_category_entries = [entry for entry in images if entry[5] == other_category]
+            selected_other_category = random.sample(other_category_entries, min(num_templates, len(other_category_entries)))
+
+            for entry in selected_other_category:
+                other_filename, _, other_bbox, other_sentence, _, other_category = entry
+                templates.append(
+                    (other_filename, '', other_bbox, other_sentence, 
+                     [("r1", ["none"]), ("r2", ["none"]), ("r3", ["none"]), ("r4", ["none"]),
+                      ("r5", ["none"]), ("r6", ["none"]), ("r7", ["none"]), ("r8", [other_category])], 
+                     other_category))
+        return templates
 
     def pull_item(self, idx):
         if self.dataset == 'flickr':
             img_file, bbox, phrase = self.images[idx]
         else:
-            img_file, _, bbox, phrase, attri, cat, templates = self.images[idx]
+            img_file, _, bbox, phrase, attri, cat = self.images[idx]
         
-        #TODO : Load templates in dataloader
-        templates = load_templates(self.images, cat, self.template_classes, self.num_templates)
-            
+        templates = self.load_templates(self.images, cat, self.template_classes, self.num_templates)
 
-        ## 타겟 이미지의 bbox 처리 (target과 동일한 처리)
         if not (self.dataset == 'referit' or self.dataset == 'flickr'):
             bbox = np.array(bbox, dtype=int)
             bbox[2], bbox[3] = bbox[0] + bbox[2], bbox[1] + bbox[3]
         else:
             bbox = np.array(bbox, dtype=int)
 
-        # 타겟 이미지 처리
         img_path = osp.join(self.im_dir, img_file)
         img = Image.open(img_path).convert("RGB")
         
-        # bbox를 텐서로 변환
-        bbox = torch.tensor(bbox)
-        bbox = bbox.float()
+        bbox = torch.tensor(bbox).float()
 
-        # 템플릿 처리
         processed_templates = []
         for template in templates:
-            temp_img_file, _, temp_bbox, temp_phrase, _ ,temp_cat = template
+            temp_img_file, _, temp_bbox, temp_phrase, _, temp_cat = template
             
-            # 템플릿 bbox 처리 (target과 동일한 방식)
             if not (self.dataset == 'referit' or self.dataset == 'flickr'):
                 temp_bbox = np.array(temp_bbox, dtype=int)
                 temp_bbox[2], temp_bbox[3] = temp_bbox[0] + temp_bbox[2], temp_bbox[1] + temp_bbox[3]
             else:
                 temp_bbox = np.array(temp_bbox, dtype=int)
 
-            # 템플릿 데이터 저장 (bbox 포함)
             processed_templates.append((temp_img_file, torch.tensor(temp_bbox).float(), temp_phrase, temp_cat))
 
-        return img, phrase, bbox, processed_templates ,cat
-
-
-    # def pull_item(self, idx):
-    #     if self.dataset == 'flickr':
-    #         img_file, bbox, phrase = self.images[idx]
-    #     else:
-    #         img_file, _, bbox, phrase, attri, templates = self.images[idx]
-    #     ## box format: to x1y1x2y2
-    #     if not (self.dataset == 'referit' or self.dataset == 'flickr'):
-    #         bbox = np.array(bbox, dtype=int)
-    #         bbox[2], bbox[3] = bbox[0]+bbox[2], bbox[1]+bbox[3]
-    #     else:
-    #         bbox = np.array(bbox, dtype=int)
-
-    #     img_path = osp.join(self.im_dir, img_file)
-    #     img = Image.open(img_path).convert("RGB")
-    #     # img = cv2.imread(img_path)
-    #     # ## duplicate channel if gray image
-    #     # if img.shape[-1] > 1:
-    #     #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    #     # else:
-    #     #     img = np.stack([img] * 3)
-
-    #     bbox = torch.tensor(bbox)
-    #     bbox = bbox.float() 
-    #     return img, phrase, bbox,templates
+        return img, phrase, bbox, processed_templates, cat
 
     def tokenize_phrase(self, phrase):
         return self.corpus.tokenize(phrase, self.query_len)
 
-    def untokenize_word_vector(self, words):
-        return self.corpus.dictionary[words]
-
     def __len__(self):
-        # return int(len(self.images) / 10)
         return len(self.images)
 
     def __getitem__(self, idx):
@@ -626,3 +545,13 @@ class GroundingDatasetCLIP(data.Dataset):
         phrase = input_dict['text']
 
         return img, phrase, np.array(bbox, dtype=np.float32)
+
+
+class GroundingDatasetforInference(GroundingDataset):
+    def __init__(self, data_root, split_root='data', dataset='referit',
+                 transform=None, split='test', max_query_len=128):
+        super(GroundingDatasetforInference, self).__init__(
+            data_root, split_root, dataset, transform, split=split,
+            max_query_len=max_query_len)
+        
+        
