@@ -135,8 +135,6 @@ def get_args_parser():
     # dataset parameters
     parser.add_argument('--output_dir', default='./outputs',
                         help='path where to save, empty for no saving')
-    # output_dir에 시간을 붙여서 저장
-    parser.output_dir = os.path.join(args.output_dir, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
@@ -304,27 +302,27 @@ def main(args):
     '''
 
     if args.pretrained_model:
-      checkpoint = torch.load(args.pretrained_model, map_location='cpu')
-      missing_keys, unexpected_keys = [], []
-      try:
-          # strict=False로 가중치 로드 시도
-          missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
-      except RuntimeError as e:
-          # size mismatch 발생 시 예외 처리
-          print("RuntimeError:", e)
-          if 'vl_pos_embed.weight' in str(e):
-              print("Size mismatch detected for vl_pos_embed.weight. Initializing with new size.")
-              # vl_pos_embed.weight 초기화
-              model_without_ddp.vl_pos_embed = torch.nn.Embedding(args.max_query_len + 400, 256).to('cuda')
-              model_without_ddp.vl_pos_embed.weight.data.uniform_(-0.1, 0.1)  # 무작위 초기화
+        checkpoint = torch.load(args.pretrained_model, map_location='cpu')
+        missing_keys, unexpected_keys = [], []
+        try:
+            # strict=False로 가중치 로드 시도
+            missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
+        except RuntimeError as e:
+            # size mismatch 발생 시 예외 처리
+            print("RuntimeError:", e)
+            if 'vl_pos_embed.weight' in str(e):
+                print("Size mismatch detected for vl_pos_embed.weight. Initializing with new size.")
+                # vl_pos_embed.weight 초기화
+                model_without_ddp.vl_pos_embed = torch.nn.Embedding(args.max_query_len + 400, 256).to('cuda')
+                model_without_ddp.vl_pos_embed.weight.data.uniform_(-0.1, 0.1)  # 무작위 초기화
 
-      # 나머지 파라미터 학습 가능하게 설정
-      for name, param in model_without_ddp.named_parameters():
-          if name in missing_keys:
-              param.requires_grad = True
+    # 나머지 파라미터 학습 가능하게 설정
+    for name, param in model_without_ddp.named_parameters():
+        if name in missing_keys:
+            param.requires_grad = True
 
-      print('Missing keys when loading dynamic-mdetr model:')
-      print(missing_keys)
+    print('Missing keys when loading dynamic-mdetr model:')
+    print(missing_keys)
 
     output_dir = Path(args.output_dir)
     if args.output_dir and utils.is_main_process():
