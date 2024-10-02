@@ -22,7 +22,13 @@ def load_category_mapping(file_path):
       category_to_idx = {category: idx for idx, category in enumerate(categories)}
       return category_to_idx, categories
   
-def compute_contrastive_loss(batch_size, num_templates, category, tem_cats, vl_feat, template_combined_src):
+def compute_contrastive_loss(batch_size,
+                             num_templates,
+                             category,
+                             tem_cats,
+                             vl_feat,
+                             template_combined_src):
+    
     target_feats = F.normalize(vl_feat, dim=-1)  # Use target features
     template_feats = F.normalize(template_combined_src, dim=-1)  # Use template combined features
 
@@ -309,8 +315,6 @@ class DynamicMDETR(nn.Module):
                                          num_templates=num_templates,
                                          category=category,
                                          tem_cats=tem_cats,
-                                         category = category,
-                                         tem_cats= tem_cats,
                                          vl_feat=vl_feat,
                                          template_combined_src=template_combined_src,
                                          )
