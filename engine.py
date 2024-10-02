@@ -7,6 +7,7 @@ import os
 import sys
 import torch
 import torch.distributed as dist
+from torchvision.ops import box_iou
 
 from tqdm import tqdm
 from typing import Iterable
@@ -195,15 +196,16 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
         current_text_tokens = text_data[0].cpu().numpy()
         current_text = tokenizer.decode(current_text_tokens, skip_special_tokens=True) 
 
-        if batch_idx % 20 == 0:
+        if batch_idx % 1 == 0:
+            output_dir_path = args.output_dir
             save_path = f"batch_{batch_idx}_eval_image.png"
-            drawing_utils.draw_bounding_boxes(img_data.tensors[0], output[0], current_text, target[0], save_path=save_path)
+            drawing_utils.draw_bounding_boxes(img_data.tensors[0], tem_imgs, output[0], current_text, target[0], save_path=save_path)
 
     pred_boxes = torch.cat(pred_box_list, dim=0)
     gt_boxes = torch.cat(gt_box_list, dim=0)
 
     total_num = gt_boxes.shape[0]
-    accu_num = eval_utils.trans_vg_eval_test(pred_boxes, gt_boxes)
+    accu_num, AP = eval_utils.trans_vg_eval_test(pred_boxes, gt_boxes)
 
     result_tensor = torch.tensor([accu_num, total_num]).to(device)
     
@@ -212,8 +214,7 @@ def evaluate(args, model: torch.nn.Module, data_loader: Iterable, device: torch.
 
     accuracy = float(result_tensor[0]) / float(result_tensor[1])
     
-    return accuracy
-
+    return accuracy, AP
 
 
 def draw_bounding_boxes_inference(image, pred_boxes, text, gt_boxes=None, figsize=(10, 10), save_path="output_image.png"):

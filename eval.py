@@ -149,6 +149,8 @@ def get_args_parser():
     parser.add_argument('--use_cross_attention', type=int, default=0, help='Use cross attention if 1, otherwise 0')
     parser.add_argument('--contrastive_loss', default=0, type=int,
                         help='Determine whether contrastive loss for pseudo embedding.') # if 1, use loss
+    parser.add_argument('--weight_contrast', default=0.2, type=float,
+                        help='Determine weight for contrastive loss.')  
     return parser
 
 
@@ -204,7 +206,7 @@ def main(args):
     start_time = time.time()
     
     # perform evaluation
-    accuracy = evaluate(args, model, data_loader_test, device)
+    accuracy, AP = evaluate(args, model, data_loader_test, device)
     
     if utils.is_main_process():
         total_time = time.time() - start_time
@@ -213,6 +215,7 @@ def main(args):
 
         log_stats = {'test_model:': args.eval_model,
                     '%s_set_accuracy'%args.eval_set: accuracy,
+                    '%s_set_AP'%args.eval_set: AP,
                     }
         print(log_stats)
         if args.output_dir and utils.is_main_process():
