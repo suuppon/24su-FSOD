@@ -29,8 +29,7 @@ utils/__pycache__/
 # 디버깅 파일 무시
 .vscode/
 
+# 쉘스크립트 무시
+*.sh
 
-eval.sh
-train.sh
-train_contrastive_loss.sh
-train_cross_attention.sh
+*.png
